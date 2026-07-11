@@ -33,12 +33,51 @@ Go 1.25, PostgreSQL 17 Alpine, Apache Kafka 3.9.1 (KRaft), Nginx 1.27 Alpine, Ka
 ## Repository structure
 
 ```text
-backend/{cmd,internal,pkg,migrations,deploy}/
-frontend/                React UI and its production Nginx image
-scripts/                 demo, wait, reset, database initialization
-docs/                    architecture, API, events, deployment, troubleshooting
-compose.yaml             complete demo stack
-Makefile                 validation and Compose shortcuts
+cross-border-logistics/
+|-- backend/                         Go microservices
+|   |-- cmd/                         Service entry points
+|   |   |-- admin-service/
+|   |   |-- order-service/
+|   |   |-- payment-service/
+|   |   |-- quotation-service/
+|   |   `-- warehouse-service/
+|   |-- internal/                    Service-specific business code
+|   |   |-- admin/
+|   |   |-- order/
+|   |   |-- payment/
+|   |   |-- quotation/
+|   |   `-- warehouse/
+|   |       |-- adapters/            HTTP, Kafka, PostgreSQL, and service clients
+|   |       |-- application/         Use cases and application services
+|   |       |-- domain/              Domain models and rules
+|   |       `-- ports/               Input and output contracts
+|   |-- migrations/                  Per-service database migrations
+|   |-- pkg/                         Shared config, event, HTTP, Kafka, and DB packages
+|   |-- deploy/nginx/                Internal API gateway configuration
+|   |-- scripts/init-databases.sql   PostgreSQL database bootstrap
+|   |-- Dockerfile
+|   |-- go.mod
+|   `-- Makefile
+|-- frontend/                        React and TypeScript web application
+|   |-- deploy/nginx.conf            Production frontend Nginx configuration
+|   |-- src/
+|   |   |-- components/              Landing-page and shared UI components
+|   |   |-- hooks/                   Reusable React hooks
+|   |   |-- lib/                     API client and utilities
+|   |   |-- pages/                   Page-level components
+|   |   |-- styles/                  Fonts, global styles, and theme tokens
+|   |   |-- test/                    Test setup
+|   |   `-- types/                   Shared TypeScript types
+|   |-- Dockerfile
+|   |-- package.json
+|   |-- tailwind.config.js
+|   `-- vite.config.ts
+|-- docs/                            Architecture, API, events, deployment, and guides
+|-- scripts/                         Demo, readiness, and reset scripts
+|-- .env.example                     Environment variable template
+|-- compose.yaml                     Complete local demo stack
+|-- Makefile                         Validation and Compose shortcuts
+`-- README.md
 ```
 
 ## Prerequisites
