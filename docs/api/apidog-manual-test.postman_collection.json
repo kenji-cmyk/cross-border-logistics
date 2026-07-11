@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b5ddce9c-f62c-4b8b-84a1-5a352fd2ba07",
     "name": "Cross-border Logistics - Manual API Flow",
-    "description": "Import this Postman Collection v2.1 file into ApiDog. Run requests in numbered order. IDs are captured automatically. Start the stack with docker compose up -d --build first. The mock-success endpoint is available only when APP_ENV is development or demo.",
+    "description": "Import this Postman Collection v2.1 file into ApiDog and run requests in numbered order. IDs, the active Admin rate snapshot, quotation totals, and payment provider references are captured automatically. Start the stack with docker compose up -d --build first. The signed payment callback uses the default development secret; update webhookSecret if PAYMENT_WEBHOOK_SECRET is different.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -11,7 +11,15 @@
     { "key": "quotationId", "value": "", "type": "string" },
     { "key": "orderId", "value": "", "type": "string" },
     { "key": "paymentId", "value": "", "type": "string" },
-    { "key": "packageId", "value": "", "type": "string" }
+    { "key": "packageId", "value": "", "type": "string" },
+    { "key": "adminUsdRate", "value": "", "type": "string" },
+    { "key": "adminRatesEffectiveAt", "value": "", "type": "string" },
+    { "key": "quotationTotal", "value": "", "type": "string" },
+    { "key": "paymentProviderReference", "value": "", "type": "string" },
+    { "key": "webhookSecret", "value": "demo-webhook-secret", "type": "string" },
+    { "key": "callbackBody", "value": "", "type": "string" },
+    { "key": "callbackTimestamp", "value": "", "type": "string" },
+    { "key": "callbackSignature", "value": "", "type": "string" }
   ],
   "item": [
     {
@@ -40,7 +48,15 @@
             "listen": "test",
             "script": { "type": "text/javascript", "exec": [
               "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
-              "pm.test('Request ID is preserved', () => pm.expect(pm.response.json().meta.requestId).to.eql('apidog-manual-rates'));"
+              "const json = pm.response.json();",
+              "pm.test('Request ID is preserved', () => pm.expect(json.meta.requestId).to.eql('apidog-manual-rates'));",
+              "pm.test('Configured currencies have positive live or fixed rates', () => {",
+              "  pm.expect(json.data.supportedCurrencies).to.include.members(['USD', 'CNY', 'JPY', 'KRW']);",
+              "  json.data.supportedCurrencies.forEach(code => pm.expect(json.data.exchangeRates[code]).to.be.above(0));",
+              "});",
+              "pm.test('Rate snapshot has an effective timestamp', () => pm.expect(Number.isNaN(Date.parse(json.data.effectiveAt))).to.eql(false));",
+              "pm.collectionVariables.set('adminUsdRate', String(json.data.exchangeRates.USD));",
+              "pm.collectionVariables.set('adminRatesEffectiveAt', json.data.effectiveAt);"
             ] }
           }]
         }
@@ -65,8 +81,18 @@
                 "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
                 "const json = pm.response.json();",
                 "pm.test('Quotation is pending confirmation', () => pm.expect(json.data.status).to.eql('PENDING_CONFIRMATION'));",
-                "pm.test('Expected demo total is 1,485,000 VND', () => pm.expect(json.data.totalAmountVnd).to.eql(1485000));",
-                "pm.collectionVariables.set('quotationId', json.data.id);"
+                "const adminUsdRate = Number(pm.collectionVariables.get('adminUsdRate'));",
+                "pm.test('Quotation uses the current Admin USD rate', () => pm.expect(json.data.exchangeRate).to.eql(adminUsdRate));",
+                "const productAmount = 50 * json.data.exchangeRate;",
+                "const serviceFee = Math.floor(((productAmount * 5) + 50) / 100);",
+                "const expectedTotal = productAmount + serviceFee + 120000;",
+                "pm.test('Dynamic quotation total follows the backend formula', () => {",
+                "  pm.expect(json.data.productAmountVnd).to.eql(productAmount);",
+                "  pm.expect(json.data.serviceFeeVnd).to.eql(serviceFee);",
+                "  pm.expect(json.data.totalAmountVnd).to.eql(expectedTotal);",
+                "});",
+                "pm.collectionVariables.set('quotationId', json.data.id);",
+                "pm.collectionVariables.set('quotationTotal', String(json.data.totalAmountVnd));"
               ] }
             }
           ],
@@ -90,7 +116,15 @@
           },
           "event": [{
             "listen": "test",
-            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test('Persisted quotation matches captured values', () => {",
+              "  pm.expect(json.data.id).to.eql(pm.collectionVariables.get('quotationId'));",
+              "  pm.expect(String(json.data.totalAmountVnd)).to.eql(pm.collectionVariables.get('quotationTotal'));",
+              "  pm.expect(String(json.data.exchangeRate)).to.eql(pm.collectionVariables.get('adminUsdRate'));",
+              "});"
+            ] }
           }]
         }
       ]
@@ -167,7 +201,13 @@
               "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
               "const json = pm.response.json();",
               "pm.test('Payment is pending', () => pm.expect(json.data.status).to.eql('PENDING'));",
-              "pm.collectionVariables.set('paymentId', json.data.paymentId);"
+              "pm.test('Deposit is 70 percent of the dynamic quotation total', () => {",
+              "  const expectedDeposit = Math.floor(Number(pm.collectionVariables.get('quotationTotal')) * 70 / 100);",
+              "  pm.expect(json.data.amountVnd).to.eql(expectedDeposit);",
+              "});",
+              "pm.test('Hosted payment URL is HTTPS', () => pm.expect(json.data.paymentUrl).to.match(/^https:\\/\\//));",
+              "pm.collectionVariables.set('paymentId', json.data.paymentId);",
+              "pm.collectionVariables.set('paymentProviderReference', json.data.providerReference);"
             ] }
           }]
         },
@@ -184,20 +224,49 @@
           }]
         },
         {
-          "name": "Mark payment successful (development/demo only)",
+          "name": "Send signed payment success callback",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "const cryptoJs = require('crypto-js');",
+                "const timestamp = String(Math.floor(Date.now() / 1000));",
+                "const body = JSON.stringify({",
+                "  eventId: 'callback-' + pm.collectionVariables.get('runId'),",
+                "  providerReference: pm.collectionVariables.get('paymentProviderReference'),",
+                "  status: 'SUCCEEDED'",
+                "});",
+                "const secret = pm.collectionVariables.get('webhookSecret');",
+                "const signature = cryptoJs.HmacSHA256(timestamp + '.' + body, secret).toString(cryptoJs.enc.Hex);",
+                "pm.collectionVariables.set('callbackBody', body);",
+                "pm.collectionVariables.set('callbackTimestamp', timestamp);",
+                "pm.collectionVariables.set('callbackSignature', signature);"
+              ] }
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                "const json = pm.response.json();",
+                "pm.test('Payment succeeded through the signed callback', () => pm.expect(json.data.status).to.eql('SUCCEEDED'));",
+                "pm.test('Callback updated the captured payment', () => pm.expect(json.data.paymentId).to.eql(pm.collectionVariables.get('paymentId')));"
+              ] }
+            }
+          ],
           "request": {
-            "description": "This helper route exists only when APP_ENV is development or demo. After calling it, wait 1-2 seconds for Kafka consumers before checking the order.",
+            "description": "Generates a current HMAC-SHA256 signature with ApiDog's built-in crypto-js library. The default webhookSecret matches .env.example. After calling it, wait 1-2 seconds for Kafka consumers before checking the order.",
             "method": "POST",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}/mock-success", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "{{paymentId}}", "mock-success"] }
-          },
-          "event": [{
-            "listen": "test",
-            "script": { "type": "text/javascript", "exec": [
-              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
-              "pm.test('Payment succeeded', () => pm.expect(pm.response.json().data.status).to.eql('SUCCEEDED'));"
-            ] }
-          }]
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Webhook-Signature", "value": "t={{callbackTimestamp}},v1={{callbackSignature}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{callbackBody}}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/callback", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "callback"] }
+          }
         },
         {
           "name": "Check order is WAITING_PURCHASE (retry after 1-2s if needed)",
