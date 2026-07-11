@@ -1,0 +1,29 @@
+CREATE TABLE IF NOT EXISTS payments (
+    id UUID PRIMARY KEY,
+    order_id UUID NOT NULL,
+    type VARCHAR(32) NOT NULL,
+    amount_vnd BIGINT NOT NULL CHECK (amount_vnd > 0),
+    currency VARCHAR(3) NOT NULL,
+    status VARCHAR(24) NOT NULL,
+    payment_url TEXT NOT NULL,
+    provider_reference TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_one_deposit_per_order_idx
+    ON payments (order_id) WHERE type = 'DEPOSIT';
+
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id UUID PRIMARY KEY,
+    aggregate_id UUID NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    published_at TIMESTAMPTZ NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NULL
+);
+
+CREATE INDEX IF NOT EXISTS outbox_events_unpublished_idx
+    ON outbox_events (created_at) WHERE published_at IS NULL;

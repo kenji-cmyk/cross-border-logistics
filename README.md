@@ -1,6 +1,6 @@
 # Cross-Border Logistics
 
-This repository is an academic microservices template. Phase 3 implements the Quotation and Order Services; Payment, Warehouse, and Admin remain Phase 1 health-check skeletons.
+This repository is an academic microservices template. Phase 4 implements the Quotation, Order, and Payment Services; Warehouse and Admin remain Phase 1 health-check skeletons.
 
 ## Quotation Service
 
@@ -27,10 +27,20 @@ It exposes:
 
 Creating a second order for the same quotation returns `409 CONFLICT`. The Order Service reads quotation data only through `GET /internal/quotations/{quotationId}` and never accesses `quotation_db` directly.
 
+## Payment Service
+
+The Payment Service reads the required deposit and current order status through the Order Service internal payment-summary API, then stores one pending deposit payment per order in `payment_db`. It exposes:
+
+- `POST /api/v1/payments/deposits`
+- `GET /api/v1/payments/{paymentId}`
+- `POST /api/v1/payments/{paymentId}/mock-success`
+
+Mock success atomically changes a payment from `PENDING` to `SUCCEEDED` and inserts a full `payment.deposit_succeeded.v1` envelope into the Payment transactional outbox. Repeating mock success is idempotent and does not create another outbox event. Phase 4 does not publish the event to Kafka and never updates Order Service directly, so the Order remains `WAITING_DEPOSIT` until Phase 5.
+
 ## Run locally
 
 ```bash
-docker compose up -d --build postgres quotation-service order-service nginx
+docker compose up -d --build postgres quotation-service order-service payment-service nginx
 curl http://localhost/health
 ```
 
@@ -54,8 +64,19 @@ curl -X POST http://localhost/api/v1/orders \
 curl http://localhost/api/v1/orders/<order-id>/timeline
 ```
 
+Create, retrieve, and simulate a successful deposit payment:
+
+```bash
+curl -X POST http://localhost/api/v1/payments/deposits \
+  -H "Content-Type: application/json" \
+  -d '{"orderId":"<order-id>"}'
+
+curl http://localhost/api/v1/payments/<payment-id>
+curl -X POST http://localhost/api/v1/payments/<payment-id>/mock-success
+```
+
 See [API examples](docs/api-examples.md) for success and error examples.
 
-## Current Phase 3 limitations
+## Current Phase 4 limitations
 
-Rates and restriction rules are in-memory mocks. There is no authentication, real exchange-rate integration, scraping, Payment/Warehouse/Admin business logic, Kafka producer or consumer, or outbox publishing worker. Order status changes driven by payment and warehouse events begin in Phase 5 and Phase 6. The deployment is a local/demo single-node stack, not a production HA design. Kafka UI on port 8088 is for local/demo environments only.
+Rates, restriction rules, and payment processing are mocks. There is no authentication, real exchange-rate integration, scraping, Warehouse/Admin business logic, Kafka producer or consumer, or outbox publishing worker. Order status changes driven by payment and warehouse events begin in Phase 5 and Phase 6. The deployment is a local/demo single-node stack, not a production HA design. Kafka UI on port 8088 is for local/demo environments only.
