@@ -25,6 +25,10 @@ var (
 	ErrRestrictedProduct     = errors.New("product is restricted")
 	ErrUnsupportedCurrency   = errors.New("unsupported currency")
 	ErrInvalidQuotationInput = errors.New("invalid quotation input")
+	ErrExtractionUnavailable = errors.New("product extraction unavailable")
+	ErrUnsafeProductURL      = errors.New("unsafe product URL")
+	ErrExchangeUnavailable   = errors.New("exchange rate unavailable")
+	ErrQuotationConflict     = errors.New("quotation is already confirmed for another order")
 )
 
 // Quotation stores source price as a fixed-point value with six decimal places.
@@ -34,6 +38,7 @@ type Quotation struct {
 	CustomerID              string
 	ProductURL              string
 	ProductName             string
+	ImageURL                string
 	SourcePriceMicros       int64
 	Currency                string
 	Quantity                int
@@ -45,6 +50,7 @@ type Quotation struct {
 	Status                  Status
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	ConfirmedOrderID        string
 }
 
 func ParseSourcePrice(raw string) (int64, error) {

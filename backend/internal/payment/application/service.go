@@ -39,17 +39,27 @@ type depositSucceededData struct {
 type Service struct {
 	repository ports.PaymentRepository
 	orders     ports.OrderReader
+	gateway    ports.PaymentGateway
 	now        func() time.Time
 }
 
-func NewService(repository ports.PaymentRepository, orders ports.OrderReader) *Service {
-	return &Service{repository: repository, orders: orders, now: time.Now}
+func NewService(repository ports.PaymentRepository, orders ports.OrderReader, gateways ...ports.PaymentGateway) *Service {
+	var gateway ports.PaymentGateway
+	if len(gateways) > 0 {
+		gateway = gateways[0]
+	}
+	return &Service{repository: repository, orders: orders, gateway: gateway, now: time.Now}
 }
 
 func (s *Service) CreateDeposit(ctx context.Context, input CreateDepositInput) (domain.Payment, error) {
 	input.OrderID = strings.TrimSpace(input.OrderID)
 	if _, err := uuid.Parse(input.OrderID); err != nil {
 		return domain.Payment{}, domain.ErrInvalidInput
+	}
+	if lookup, ok := s.repository.(ports.PaymentLookup); ok {
+		if existing, err := lookup.FindByOrderID(ctx, input.OrderID); err == nil {
+			return existing, nil
+		}
 	}
 	summary, err := s.orders.GetPaymentSummary(ctx, input.OrderID)
 	if err != nil {
@@ -60,16 +70,48 @@ func (s *Service) CreateDeposit(ctx context.Context, input CreateDepositInput) (
 	}
 	now := s.now().UTC()
 	id := uuid.NewString()
+	transaction := ports.GatewayTransaction{Reference: "mock-" + id, HostedURL: "https://mock-payments.local/payments/" + id}
+	if s.gateway != nil {
+		transaction, err = s.gateway.CreateTransaction(ctx, id, summary.DepositAmountVND, "VND")
+		if err != nil {
+			return domain.Payment{}, domain.ErrDependency
+		}
+	}
 	payment := domain.Payment{
 		ID: id, OrderID: input.OrderID, Type: domain.TypeDeposit,
 		AmountVND: summary.DepositAmountVND, Currency: domain.CurrencyVND, Status: domain.StatusPending,
-		PaymentURL:        "https://mock-payments.local/payments/" + id,
-		ProviderReference: "mock-" + id, CreatedAt: now, UpdatedAt: now,
+		PaymentURL:        transaction.HostedURL,
+		ProviderReference: transaction.Reference, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.repository.Create(ctx, payment); err != nil {
 		return domain.Payment{}, err
 	}
 	return payment, nil
+}
+
+func (s *Service) ProcessCallback(ctx context.Context, providerReference, eventID, status string) (domain.Payment, error) {
+	providerReference, eventID, status = strings.TrimSpace(providerReference), strings.TrimSpace(eventID), strings.ToUpper(strings.TrimSpace(status))
+	if providerReference == "" || eventID == "" || status != "SUCCEEDED" {
+		return domain.Payment{}, domain.ErrInvalidInput
+	}
+	lookup, ok := s.repository.(ports.PaymentLookup)
+	if !ok {
+		return domain.Payment{}, domain.ErrDependency
+	}
+	payment, err := lookup.FindByProviderReference(ctx, providerReference)
+	if err != nil {
+		return domain.Payment{}, err
+	}
+	outbox, err := makeDepositSucceededEvent(payment, s.now().UTC())
+	if err != nil {
+		return domain.Payment{}, err
+	}
+	callbacks, ok := s.repository.(ports.CallbackRepository)
+	if !ok {
+		return domain.Payment{}, domain.ErrDependency
+	}
+	result, _, err := callbacks.SucceedCallback(ctx, payment.ID, eventID, outbox)
+	return result, err
 }
 
 func (s *Service) Get(ctx context.Context, id string) (domain.Payment, error) {

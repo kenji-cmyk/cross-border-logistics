@@ -7,11 +7,12 @@ All public responses use `{ "data": ..., "meta": { "requestId": ... } }`; errors
 | Method | Path |
 |---|---|
 | GET | `/health` |
-| POST / GET | `/api/v1/quotations` / `/api/v1/quotations/{quotationId}` |
+| POST / GET | `/api/v1/quotations/extract` / `/api/v1/quotations/{quotationId}` |
 | POST / GET | `/api/v1/orders` / `/api/v1/orders/{orderId}` |
 | GET | `/api/v1/orders/{orderId}/timeline` |
-| POST | `/api/v1/payments/deposits` |
-| GET / POST | `/api/v1/payments/{paymentId}` / `/api/v1/payments/{paymentId}/mock-success` |
+| POST | `/api/v1/payments/deposit` |
+| GET / POST | `/api/v1/payments/{paymentId}` / `/api/v1/payments/callback` |
+| GET (SSE) | `/api/v1/notifications/orders/{orderId}/stream` |
 | POST | `/api/v1/warehouse/packages/receive` |
 | GET | `/api/v1/warehouse/packages/{packageId}` |
 | GET | `/api/v1/admin/rates` |
@@ -27,10 +28,10 @@ BASE_URL=${BASE_URL:-http://localhost}
 RUN_ID=$(date +%s)
 ```
 
-Create a quotation and save its ID:
+Extract a supported product and save its quotation ID:
 
 ```bash
-QUOTATION=$(curl -sS -X POST "$BASE_URL/api/v1/quotations" -H 'Content-Type: application/json' -d "{\"customerId\":\"customer-$RUN_ID\",\"productUrl\":\"https://example.com/product/123?demo=$RUN_ID\",\"productName\":\"Wireless Keyboard\",\"sourcePrice\":50,\"currency\":\"USD\",\"quantity\":1}")
+QUOTATION=$(curl -sS -X POST "$BASE_URL/api/v1/quotations/extract" -H 'Content-Type: application/json' -d "{\"customerId\":\"customer-$RUN_ID\",\"productUrl\":\"https://shop.example/item/123?name=Wireless%20Keyboard&price=50&currency=USD&demo=$RUN_ID\",\"quantity\":1}")
 echo "$QUOTATION" | jq
 QUOTATION_ID=$(echo "$QUOTATION" | jq -r '.data.id')
 curl -sS "$BASE_URL/api/v1/quotations/$QUOTATION_ID" | jq
@@ -39,15 +40,15 @@ curl -sS "$BASE_URL/api/v1/quotations/$QUOTATION_ID" | jq
 Expected quotation status is `PENDING_CONFIRMATION`; total is `1485000` VND.
 
 ```bash
-ORDER=$(curl -sS -X POST "$BASE_URL/api/v1/orders" -H 'Content-Type: application/json' -d "{\"quotationId\":\"$QUOTATION_ID\",\"customerId\":\"customer-$RUN_ID\",\"deliveryAddress\":\"Thu Duc City, Ho Chi Minh City\"}")
+ORDER=$(curl -sS -X POST "$BASE_URL/api/v1/orders" -H 'Content-Type: application/json' -d "{\"quotationId\":\"$QUOTATION_ID\",\"deliveryAddress\":\"Thu Duc City, Ho Chi Minh City\"}")
 echo "$ORDER" | jq
 ORDER_ID=$(echo "$ORDER" | jq -r '.data.orderId')
 
-PAYMENT=$(curl -sS -X POST "$BASE_URL/api/v1/payments/deposits" -H 'Content-Type: application/json' -d "{\"orderId\":\"$ORDER_ID\"}")
+PAYMENT=$(curl -sS -X POST "$BASE_URL/api/v1/payments/deposit" -H 'Content-Type: application/json' -d "{\"orderId\":\"$ORDER_ID\"}")
 echo "$PAYMENT" | jq
 PAYMENT_ID=$(echo "$PAYMENT" | jq -r '.data.paymentId')
 curl -sS "$BASE_URL/api/v1/payments/$PAYMENT_ID" | jq
-curl -sS -X POST "$BASE_URL/api/v1/payments/$PAYMENT_ID/mock-success" | jq
+# `make demo` signs and replays the provider callback using PAYMENT_WEBHOOK_SECRET.
 ```
 
 Expected statuses are Order `WAITING_DEPOSIT`, Payment `PENDING`, then Payment `SUCCEEDED`. Poll rather than relying on a fixed sleep:

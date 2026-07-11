@@ -16,11 +16,17 @@ type CreateInput struct {
 	Quantity                                                   int
 }
 
+type ExtractInput struct {
+	CustomerID, ProductURL string
+	Quantity               int
+}
+
 type Result struct {
 	ID                      string        `json:"id"`
 	CustomerID              string        `json:"customerId"`
 	ProductURL              string        `json:"productUrl"`
 	ProductName             string        `json:"productName"`
+	ImageURL                string        `json:"imageUrl,omitempty"`
 	SourcePrice             Decimal       `json:"sourcePrice"`
 	Currency                string        `json:"currency"`
 	Quantity                int           `json:"quantity"`
@@ -53,14 +59,39 @@ type Service struct {
 	repository   ports.QuotationRepository
 	rates        ports.ExchangeRateProvider
 	restrictions ports.ProductRestrictionChecker
+	extractor    ports.ProductExtractor
 	now          func() time.Time
 }
 
-func NewService(r ports.QuotationRepository, rates ports.ExchangeRateProvider, restrictions ports.ProductRestrictionChecker) *Service {
-	return &Service{repository: r, rates: rates, restrictions: restrictions, now: time.Now}
+func NewService(r ports.QuotationRepository, rates ports.ExchangeRateProvider, restrictions ports.ProductRestrictionChecker, extractors ...ports.ProductExtractor) *Service {
+	var extractor ports.ProductExtractor
+	if len(extractors) > 0 {
+		extractor = extractors[0]
+	}
+	return &Service{repository: r, rates: rates, restrictions: restrictions, extractor: extractor, now: time.Now}
+}
+
+func (s *Service) Extract(ctx context.Context, input ExtractInput) (Result, error) {
+	if s.extractor == nil {
+		return Result{}, domain.ErrExtractionUnavailable
+	}
+	input.CustomerID, input.ProductURL = strings.TrimSpace(input.CustomerID), strings.TrimSpace(input.ProductURL)
+	if input.CustomerID == "" || input.ProductURL == "" || input.Quantity <= 0 {
+		return Result{}, domain.ErrInvalidQuotationInput
+	}
+	product, err := s.extractor.Extract(ctx, input.ProductURL)
+	if err != nil {
+		return Result{}, err
+	}
+	result, err := s.create(ctx, CreateInput{CustomerID: input.CustomerID, ProductURL: product.URL, ProductName: product.Name, SourcePrice: product.SourcePrice, Currency: product.Currency, Quantity: input.Quantity}, product.ImageURL)
+	return result, err
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (Result, error) {
+	return s.create(ctx, input, "")
+}
+
+func (s *Service) create(ctx context.Context, input CreateInput, imageURL string) (Result, error) {
 	input.CustomerID, input.ProductURL, input.ProductName = strings.TrimSpace(input.CustomerID), strings.TrimSpace(input.ProductURL), strings.TrimSpace(input.ProductName)
 	input.Currency = strings.ToUpper(strings.TrimSpace(input.Currency))
 	if input.CustomerID == "" || input.ProductURL == "" || input.ProductName == "" || input.Currency == "" || input.Quantity <= 0 {
@@ -82,7 +113,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Result, error)
 		return Result{}, err
 	}
 	now := s.now().UTC()
-	q := domain.Quotation{ID: uuid.NewString(), CustomerID: input.CustomerID, ProductURL: input.ProductURL, ProductName: input.ProductName, SourcePriceMicros: price, Currency: input.Currency, Quantity: input.Quantity, ExchangeRate: rate, ProductAmountVND: amount, ServiceFeeVND: fee, EstimatedShippingFeeVND: domain.EstimatedShippingFeeVND, TotalAmountVND: total, Status: domain.StatusPendingConfirmation, CreatedAt: now, UpdatedAt: now}
+	q := domain.Quotation{ID: uuid.NewString(), CustomerID: input.CustomerID, ProductURL: input.ProductURL, ProductName: input.ProductName, ImageURL: imageURL, SourcePriceMicros: price, Currency: input.Currency, Quantity: input.Quantity, ExchangeRate: rate, ProductAmountVND: amount, ServiceFeeVND: fee, EstimatedShippingFeeVND: domain.EstimatedShippingFeeVND, TotalAmountVND: total, Status: domain.StatusPendingConfirmation, CreatedAt: now, UpdatedAt: now}
 	if err := s.repository.Create(ctx, q); err != nil {
 		return Result{}, err
 	}
@@ -108,8 +139,33 @@ func (s *Service) GetSnapshot(ctx context.Context, id string) (Snapshot, error) 
 	return Snapshot{QuotationID: r.ID, CustomerID: r.CustomerID, ProductURL: r.ProductURL, ProductName: r.ProductName, Quantity: r.Quantity, TotalAmountVND: r.TotalAmountVND, Status: r.Status, CreatedAt: r.CreatedAt}, nil
 }
 
+func (s *Service) Confirm(ctx context.Context, quotationID, orderID string) (Snapshot, error) {
+	if _, err := uuid.Parse(strings.TrimSpace(quotationID)); err != nil {
+		return Snapshot{}, domain.ErrInvalidQuotationInput
+	}
+	if _, err := uuid.Parse(strings.TrimSpace(orderID)); err != nil {
+		return Snapshot{}, domain.ErrInvalidQuotationInput
+	}
+	q, err := s.repository.FindByID(ctx, quotationID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if s.now().UTC().Sub(q.CreatedAt) > 30*time.Minute {
+		return Snapshot{}, domain.ErrInvalidQuotationInput
+	}
+	confirmations, ok := s.repository.(ports.ConfirmationRepository)
+	if !ok {
+		return Snapshot{}, domain.ErrQuotationConflict
+	}
+	q, err = confirmations.Confirm(ctx, quotationID, orderID, s.now().UTC())
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{QuotationID: q.ID, CustomerID: q.CustomerID, ProductURL: q.ProductURL, ProductName: q.ProductName, Quantity: q.Quantity, TotalAmountVND: q.TotalAmountVND, Status: q.Status, CreatedAt: q.CreatedAt}, nil
+}
+
 func toResult(q domain.Quotation) Result {
-	return Result{ID: q.ID, CustomerID: q.CustomerID, ProductURL: q.ProductURL, ProductName: q.ProductName, SourcePrice: Decimal(domain.FormatSourcePrice(q.SourcePriceMicros)), Currency: q.Currency, Quantity: q.Quantity, ExchangeRate: q.ExchangeRate, ProductAmountVND: q.ProductAmountVND, ServiceFeeVND: q.ServiceFeeVND, EstimatedShippingFeeVND: q.EstimatedShippingFeeVND, TotalAmountVND: q.TotalAmountVND, Status: q.Status, CreatedAt: q.CreatedAt, UpdatedAt: q.UpdatedAt}
+	return Result{ID: q.ID, CustomerID: q.CustomerID, ProductURL: q.ProductURL, ProductName: q.ProductName, ImageURL: q.ImageURL, SourcePrice: Decimal(domain.FormatSourcePrice(q.SourcePriceMicros)), Currency: q.Currency, Quantity: q.Quantity, ExchangeRate: q.ExchangeRate, ProductAmountVND: q.ProductAmountVND, ServiceFeeVND: q.ServiceFeeVND, EstimatedShippingFeeVND: q.EstimatedShippingFeeVND, TotalAmountVND: q.TotalAmountVND, Status: q.Status, CreatedAt: q.CreatedAt, UpdatedAt: q.UpdatedAt}
 }
 
 func IsNotFound(err error) bool { return errors.Is(err, domain.ErrQuotationNotFound) }

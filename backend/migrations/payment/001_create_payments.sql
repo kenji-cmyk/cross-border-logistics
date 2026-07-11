@@ -27,3 +27,10 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 
 CREATE INDEX IF NOT EXISTS outbox_events_unpublished_idx
     ON outbox_events (created_at) WHERE published_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_provider_reference_idx ON payments(provider_reference);
+CREATE TABLE IF NOT EXISTS provider_callbacks (
+    event_id TEXT PRIMARY KEY,
+    payment_id UUID NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL
+);

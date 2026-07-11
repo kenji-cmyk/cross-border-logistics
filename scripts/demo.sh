@@ -5,7 +5,7 @@ BASE_URL=${BASE_URL:-http://localhost}
 DEMO_TIMEOUT_SECONDS=${DEMO_TIMEOUT_SECONDS:-45}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-for command in curl jq; do
+for command in curl jq openssl; do
   command -v "$command" >/dev/null 2>&1 || { echo "$command is required." >&2; exit 1; }
 done
 
@@ -25,6 +25,14 @@ api_request() {
   fi
   jq -e . >/dev/null <<<"$response" || { echo "Invalid JSON from $url: $response" >&2; return 1; }
   printf '%s' "$response"
+}
+
+signed_callback() {
+  local body=$1 timestamp signature response status
+  timestamp=$(date +%s)
+  signature=$(printf '%s' "$timestamp.$body" | openssl dgst -sha256 -hmac "${PAYMENT_WEBHOOK_SECRET:-demo-webhook-secret}" -hex | awk '{print $NF}')
+  response=$(curl --silent --show-error --max-time 10 -X POST -H 'Content-Type: application/json' -H "X-Webhook-Signature: t=$timestamp,v1=$signature" -w $'\n%{http_code}' "$BASE_URL/api/v1/payments/callback" --data "$body")
+  status=${response##*$'\n'}; response=${response%$'\n'*}; [[ "$status" =~ ^2 ]] || { echo "$response" >&2; return 1; }; printf '%s' "$response"
 }
 
 assert_json() {
@@ -62,7 +70,7 @@ echo "[1/10] Checking gateway and services..."
 BASE_URL="$BASE_URL" WAIT_TIMEOUT_SECONDS=120 "$SCRIPT_DIR/wait-for-services.sh"
 
 echo "[2/10] Creating quotation..."
-quotation=$(api_request POST "$BASE_URL/api/v1/quotations" "$(jq -nc --arg customer "$customer_id" --arg run "$run_id" '{customerId:$customer,productUrl:("https://example.com/product/keyboard?demo="+$run),productName:"Wireless Keyboard",sourcePrice:50,currency:"USD",quantity:1}')")
+quotation=$(api_request POST "$BASE_URL/api/v1/quotations/extract" "$(jq -nc --arg customer "$customer_id" --arg run "$run_id" '{customerId:$customer,productUrl:("https://shop.example/item/keyboard?name=Wireless%20Keyboard&price=50&currency=USD&demo="+$run),quantity:1}')")
 quotation_id=$(jq -r '.data.id' <<<"$quotation")
 assert_json "$quotation" '.data.status' 'PENDING_CONFIRMATION' 'Quotation status'
 assert_json "$quotation" '.data.totalAmountVnd|tostring' '1485000' 'Quotation total'
@@ -70,22 +78,27 @@ echo "Quotation ID: $quotation_id"
 echo "Total amount: $(jq -r '.data.totalAmountVnd' <<<"$quotation") VND"
 
 echo "[3/10] Creating order..."
-order=$(api_request POST "$BASE_URL/api/v1/orders" "$(jq -nc --arg quotation "$quotation_id" --arg customer "$customer_id" '{quotationId:$quotation,customerId:$customer,deliveryAddress:"Thu Duc City, Ho Chi Minh City"}')")
+order=$(api_request POST "$BASE_URL/api/v1/orders" "$(jq -nc --arg quotation "$quotation_id" '{quotationId:$quotation,deliveryAddress:"Thu Duc City, Ho Chi Minh City"}')")
 order_id=$(jq -r '.data.orderId' <<<"$order")
 assert_json "$order" '.data.status' 'WAITING_DEPOSIT' 'Initial Order status'
 echo "Order ID: $order_id"
 echo "Order status: WAITING_DEPOSIT"
 
 echo "[4/10] Creating deposit payment..."
-payment=$(api_request POST "$BASE_URL/api/v1/payments/deposits" "$(jq -nc --arg order "$order_id" '{orderId:$order}')")
+payment=$(api_request POST "$BASE_URL/api/v1/payments/deposit" "$(jq -nc --arg order "$order_id" '{orderId:$order}')")
 payment_id=$(jq -r '.data.paymentId' <<<"$payment")
 assert_json "$payment" '.data.status' 'PENDING' 'Initial Payment status'
 echo "Payment ID: $payment_id"
 echo "Payment status: PENDING"
 
 echo "[5/10] Simulating payment success..."
-payment=$(api_request POST "$BASE_URL/api/v1/payments/$payment_id/mock-success")
+provider_reference=$(jq -r '.data.providerReference' <<<"$payment")
+callback_event="callback-$run_id"
+callback_body=$(jq -nc --arg event "$callback_event" --arg reference "$provider_reference" '{eventId:$event,providerReference:$reference,status:"SUCCEEDED"}')
+payment=$(signed_callback "$callback_body")
 assert_json "$payment" '.data.status' 'SUCCEEDED' 'Successful Payment status'
+payment=$(signed_callback "$callback_body")
+assert_json "$payment" '.data.status' 'SUCCEEDED' 'Idempotent callback replay'
 echo "Payment status: SUCCEEDED"
 
 echo "[6/10] Waiting for Kafka payment event..."

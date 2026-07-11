@@ -19,6 +19,18 @@ type OrderReader interface {
 	GetPaymentSummary(context.Context, string) (OrderPaymentSummary, error)
 }
 
+type GatewayTransaction struct{ Reference, HostedURL string }
+type PaymentGateway interface {
+	CreateTransaction(context.Context, string, int64, string) (GatewayTransaction, error)
+}
+type PaymentLookup interface {
+	FindByOrderID(context.Context, string) (domain.Payment, error)
+	FindByProviderReference(context.Context, string) (domain.Payment, error)
+}
+type CallbackRepository interface {
+	SucceedCallback(context.Context, string, string, OutboxEvent) (domain.Payment, bool, error)
+}
+
 type OutboxEvent struct {
 	ID          string
 	AggregateID string

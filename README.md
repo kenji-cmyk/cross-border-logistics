@@ -7,22 +7,24 @@ This is an academic, runnable source-code template for a cross-border assisted-s
 ## Implemented business flow
 
 ```text
-Quotation -> Order (WAITING_DEPOSIT) -> Deposit Payment -> Kafka
--> Order (WAITING_PURCHASE) -> Foreign Warehouse Package -> Kafka
+Product URL -> Extracted Quotation -> Confirmed Order (WAITING_DEPOSIT)
+-> Hosted Deposit -> Signed Callback -> Kafka -> SSE -> Order (WAITING_PURCHASE)
+-> Foreign Warehouse Package -> Kafka
 -> Order (ARRIVED_FOREIGN_WAREHOUSE) -> Tracking Timeline
 ```
 
 ## Architecture
 
-The public Nginx container serves the React frontend and forwards browser API requests to an internal Nginx API gateway. Five Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, and Order consumers use `processed_events` for idempotency. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
+The public Nginx container serves the React frontend and forwards browser API requests to an internal Nginx API gateway. Six Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, Order consumers use `processed_events` for idempotency, and Notification streams status changes through SSE. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
 
 ## Services
 
 | Service | Responsibility / database | Public API | Kafka |
 |---|---|---|---|
-| Quotation | Validate products and calculate mock-rate quotations / `quotation_db` | `POST`, `GET /api/v1/quotations...` | None |
+| Quotation | Extract allowlisted product metadata and calculate quotations / `quotation_db` | `/api/v1/quotations...` | None |
 | Order | Create Orders, own status and timeline / `order_db` | `POST`, `GET /api/v1/orders...` | Produces `order.created.v1`, `order.status_changed.v1`; consumes payment/package events |
-| Payment | Create and mock-complete deposits / `payment_db` | `/api/v1/payments...` | Produces `payment.deposit_succeeded.v1` |
+| Payment | Create hosted deposits and verify signed callbacks / `payment_db` | `/api/v1/payments...` | Produces `payment.deposit_succeeded.v1` |
+| Notification | Stream Order status changes / no database | `/api/v1/notifications...` | Consumes `order.status_changed.v1` |
 | Warehouse | Receive and retrieve foreign packages / `warehouse_db` | `/api/v1/warehouse/packages...` | Produces `package.received.v1` |
 | Admin | Read configuration-backed demo rates / no runtime database | `GET /api/v1/admin/rates` | None |
 
@@ -142,7 +144,7 @@ The safer scripted form is `make reset-demo`; destructive reset requires `./scri
 
 ## Current limitations
 
-- No authentication, RBAC, real payment gateway, product scraping, exchange-rate integration, domestic shipping API, or TLS in local Compose.
+- Demo customer identity remains request-scoped; production must derive it from authentication. Real provider certification, broad marketplace scraping, domestic shipping API, and local TLS remain out of scope.
 - One Kafka broker, one PostgreSQL container, and one single-node EC2 deployment; no production HA and no claim of supporting 2,000 concurrent users.
 - Admin rates are configuration-backed and do not dynamically update Quotation.
 - The demo intentionally transitions directly from `WAITING_PURCHASE` to `ARRIVED_FOREIGN_WAREHOUSE`.

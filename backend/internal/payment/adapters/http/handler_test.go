@@ -40,7 +40,7 @@ func TestPaymentEndpoints(t *testing.T) {
 		status             int
 		contains           string
 	}{
-		{http.MethodPost, "/api/v1/payments/deposits", `{"orderId":"46ab7a1a-bab7-4a46-b9f9-d7572a284895"}`, http.StatusCreated, `"status":"PENDING"`},
+		{http.MethodPost, "/api/v1/payments/deposit", `{"orderId":"46ab7a1a-bab7-4a46-b9f9-d7572a284895"}`, http.StatusCreated, `"status":"PENDING"`},
 		{http.MethodGet, "/api/v1/payments/" + paymentID, "", http.StatusOK, `"paymentId":"` + paymentID + `"`},
 		{http.MethodPost, "/api/v1/payments/" + paymentID + "/mock-success", "", http.StatusOK, `"status":"SUCCEEDED"`},
 	}
@@ -82,7 +82,7 @@ func TestPaymentHandlerErrors(t *testing.T) {
 
 func TestCreateDepositRejectsMalformedBody(t *testing.T) {
 	response := httptest.NewRecorder()
-	handler(fakeService{}).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/payments/deposits", strings.NewReader(`{`)))
+	handler(fakeService{}).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/payments/deposit", strings.NewReader(`{`)))
 	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "VALIDATION_ERROR") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}

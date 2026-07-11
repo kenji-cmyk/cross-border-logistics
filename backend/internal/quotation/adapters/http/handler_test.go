@@ -31,17 +31,17 @@ func (r *repository) FindByID(_ context.Context, id string) (domain.Quotation, e
 }
 func setup() (http.Handler, *repository) {
 	repo := &repository{values: map[string]domain.Quotation{}}
-	service := application.NewService(repo, adapters.MockExchangeRates{}, adapters.MockRestrictionChecker{})
+	service := application.NewService(repo, adapters.MockExchangeRates{}, adapters.MockRestrictionChecker{}, adapters.DemoProductExtractor{})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return httpx.RequestIDMiddleware(quotationhttp.New(service, logger, "quotation-service")), repo
 }
 
 func TestCreateAndGetQuotation(t *testing.T) {
 	handler, _ := setup()
-	body := `{"customerId":"customer-001","productUrl":"https://example.com/p/1","productName":"Keyboard","sourcePrice":50,"currency":"USD","quantity":1}`
+	body := `{"customerId":"customer-001","productUrl":"https://shop.example/p/1?name=Keyboard&price=50&currency=USD","quantity":1}`
 	post := httptest.NewRecorder()
-	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/v1/quotations", strings.NewReader(body)))
-	if post.Code != http.StatusCreated {
+	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/api/v1/quotations/extract", strings.NewReader(body)))
+	if post.Code != http.StatusOK {
 		t.Fatalf("POST status=%d body=%s", post.Code, post.Body.String())
 	}
 	var id string
@@ -65,12 +65,12 @@ func TestCreateAndGetQuotation(t *testing.T) {
 }
 
 func TestCreateQuotationErrors(t *testing.T) {
-	tests := []struct{ name, body, code string }{{"invalid JSON", `{`, "VALIDATION_ERROR"}, {"restricted", `{"customerId":"c","productUrl":"https://example.com/gun","productName":"item","sourcePrice":50,"currency":"USD","quantity":1}`, "RESTRICTED_PRODUCT"}}
+	tests := []struct{ name, body, code string }{{"invalid JSON", `{`, "VALIDATION_ERROR"}, {"restricted", `{"customerId":"c","productUrl":"https://shop.example/gun?name=weapon&price=50&currency=USD","quantity":1}`, "RESTRICTED_ITEM"}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := setup()
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/quotations", strings.NewReader(tt.body)))
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/quotations/extract", strings.NewReader(tt.body)))
 			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), tt.code) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}

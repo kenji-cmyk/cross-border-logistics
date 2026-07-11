@@ -64,7 +64,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Order, 
 	input.QuotationID = strings.TrimSpace(input.QuotationID)
 	input.CustomerID = strings.TrimSpace(input.CustomerID)
 	input.DeliveryAddress = strings.TrimSpace(input.DeliveryAddress)
-	if _, err := uuid.Parse(input.QuotationID); err != nil || input.CustomerID == "" || input.DeliveryAddress == "" {
+	if _, err := uuid.Parse(input.QuotationID); err != nil || input.DeliveryAddress == "" {
 		return domain.Order{}, domain.ErrInvalidInput
 	}
 
@@ -72,15 +72,26 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Order, 
 	if err != nil {
 		return domain.Order{}, err
 	}
-	if quotation.CustomerID != input.CustomerID {
+	if input.CustomerID != "" && quotation.CustomerID != input.CustomerID {
 		return domain.Order{}, domain.ErrCustomerMismatch
 	}
-	if quotation.Status != quotationStatusPending || quotation.Quantity <= 0 || quotation.TotalAmountVND <= 0 {
+	_, canConfirm := s.quotations.(ports.QuotationConfirmer)
+	if (quotation.Status != quotationStatusPending && !(canConfirm && quotation.Status == "CONFIRMED")) || quotation.Quantity <= 0 || quotation.TotalAmountVND <= 0 {
 		return domain.Order{}, domain.ErrInvalidQuotation
 	}
 
 	now := s.now().UTC()
-	orderID := uuid.NewString()
+	orderID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("order:"+quotation.QuotationID)).String()
+	if confirmer, ok := s.quotations.(ports.QuotationConfirmer); ok {
+		confirmed, err := confirmer.ConfirmQuotation(ctx, quotation.QuotationID, orderID)
+		if err != nil {
+			return domain.Order{}, err
+		}
+		quotation = confirmed
+	}
+	if input.CustomerID == "" {
+		input.CustomerID = quotation.CustomerID
+	}
 	deposit := quotation.TotalAmountVND/100*70 + quotation.TotalAmountVND%100*70/100
 	order := domain.Order{
 		ID: orderID, CustomerID: input.CustomerID, QuotationID: quotation.QuotationID,
@@ -178,7 +189,8 @@ func (s *Service) HandlePaymentDepositSucceeded(ctx context.Context, envelope sh
 	tracking := domain.TrackingEvent{ID: uuid.NewString(), OrderID: data.OrderID.String(), Status: domain.StatusWaitingPurchase, Description: description, Source: "payment-service", OccurredAt: now, CreatedAt: now}
 	return s.repository.ProcessPaymentSucceeded(ctx, ports.ProcessPaymentSucceeded{
 		EventID: envelope.EventID.String(), EventType: envelope.EventType, OrderID: data.OrderID.String(), ProcessedAt: now, Tracking: tracking,
-		Outbox: ports.OutboxEvent{ID: statusEvent.EventID.String(), AggregateID: data.OrderID.String(), EventType: statusEvent.EventType, Payload: payload, CreatedAt: now},
+		AmountVND: data.AmountVND,
+		Outbox:    ports.OutboxEvent{ID: statusEvent.EventID.String(), AggregateID: data.OrderID.String(), EventType: statusEvent.EventType, Payload: payload, CreatedAt: now},
 	})
 }
 

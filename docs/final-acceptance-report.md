@@ -1,5 +1,15 @@
 # Phase 8 final acceptance report
 
+> Sequence-alignment update (2026-07-11): the current canonical flow now uses
+> `POST /api/v1/quotations/extract`, idempotent quotation confirmation and Order
+> creation, `POST /api/v1/payments/deposit`, an HMAC-signed replay-safe callback,
+> Kafka-only Order mutation, and the Notification SSE stream. Current validation
+> passed Go format/test/vet/build, frontend test/build, Compose config and image
+> builds, all container health checks, a 180 ms controlled quotation request,
+> duplicate Order/callback assertions, `WAITING_PURCHASE`, one outbox/timeline
+> transition, and public-port SSE replay. The legacy report below documents the
+> earlier warehouse slice and is retained as historical evidence.
+
 ## Scope
 
 Phase 8 adds reproducible validation, an asserted end-to-end demo, complete architecture/API/event/deployment/troubleshooting documentation, safe reset commands, and Compose readiness. It introduces no new business service or workflow.

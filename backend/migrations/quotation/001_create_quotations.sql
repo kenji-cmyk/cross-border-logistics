@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS quotations (
     customer_id TEXT NOT NULL,
     product_url TEXT NOT NULL,
     product_name TEXT NOT NULL,
+    image_url TEXT NOT NULL DEFAULT '',
     source_price NUMERIC(24, 6) NOT NULL CHECK (source_price > 0),
     currency VARCHAR(3) NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
@@ -15,3 +16,6 @@ CREATE TABLE IF NOT EXISTS quotations (
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS confirmed_order_id UUID NULL;

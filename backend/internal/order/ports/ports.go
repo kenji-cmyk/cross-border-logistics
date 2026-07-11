@@ -23,6 +23,10 @@ type QuotationReader interface {
 	GetQuotation(context.Context, string) (QuotationSnapshot, error)
 }
 
+type QuotationConfirmer interface {
+	ConfirmQuotation(context.Context, string, string) (QuotationSnapshot, error)
+}
+
 type OutboxEvent struct {
 	ID          string
 	AggregateID string
@@ -48,6 +52,7 @@ type ProcessPackageReceived struct {
 
 type ProcessPaymentSucceeded struct {
 	EventID, EventType, OrderID string
+	AmountVND                   int64
 	ProcessedAt                 time.Time
 	Tracking                    domain.TrackingEvent
 	Outbox                      OutboxEvent

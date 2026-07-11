@@ -1,10 +1,10 @@
 # AWS EC2 single-instance demo deployment
 
-This guide deploys the React frontend, API gateway, five Go services, PostgreSQL, and Kafka on one Ubuntu EC2 instance. It is a demo topology, not production HA.
+This guide deploys the React frontend, API gateway, six Go services (including Notification SSE), PostgreSQL, and Kafka on one Ubuntu EC2 instance. It is a demo topology, not production HA.
 
 ## Instance and network
 
-Use an instance with enough memory for five Go services, PostgreSQL, Kafka, and two Nginx containers. A `t3.large`/`t3a.large` (8 GiB) is the safer demo starting point; 4 GiB may require swap while images build. Use at least 20 GiB of EBS and attach an Elastic IP or DNS name if the address must remain stable.
+Use an instance with enough memory for six Go services, PostgreSQL, Kafka, and two Nginx containers. A `t3.large`/`t3a.large` (8 GiB) is the safer demo starting point; 4 GiB may require swap while images build. Use at least 20 GiB of EBS and attach an Elastic IP or DNS name if the address must remain stable.
 
 Security-group inbound rules:
 

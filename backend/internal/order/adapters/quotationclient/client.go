@@ -1,6 +1,7 @@
 package quotationclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,31 @@ import (
 type Client struct {
 	baseURL string
 	client  *http.Client
+}
+
+func (c *Client) ConfirmQuotation(ctx context.Context, id, orderID string) (ports.QuotationSnapshot, error) {
+	body, _ := json.Marshal(map[string]string{"orderId": orderID})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/internal/quotations/"+url.PathEscape(id)+"/confirm", bytes.NewReader(body))
+	if err != nil {
+		return ports.QuotationSnapshot{}, fmt.Errorf("%w: create confirmation request", domain.ErrDependency)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.client.Do(request)
+	if err != nil {
+		return ports.QuotationSnapshot{}, fmt.Errorf("%w: confirm quotation: %v", domain.ErrDependency, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusConflict {
+		return ports.QuotationSnapshot{}, domain.ErrQuotationConflict
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return ports.QuotationSnapshot{}, fmt.Errorf("%w: confirmation HTTP %d", domain.ErrDependency, response.StatusCode)
+	}
+	var payload successResponse
+	if json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload) != nil {
+		return ports.QuotationSnapshot{}, domain.ErrDependency
+	}
+	return ports.QuotationSnapshot{QuotationID: payload.Data.QuotationID, CustomerID: payload.Data.CustomerID, ProductURL: payload.Data.ProductURL, ProductName: payload.Data.ProductName, Quantity: payload.Data.Quantity, TotalAmountVND: payload.Data.TotalAmountVND, Status: payload.Data.Status, CreatedAt: payload.Data.CreatedAt}, nil
 }
 
 type successResponse struct {

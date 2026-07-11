@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"time"
 
 	"github.com/example/cross-border-logistics/internal/quotation/adapters"
 	quotationhttp "github.com/example/cross-border-logistics/internal/quotation/adapters/http"
 	quotationpostgres "github.com/example/cross-border-logistics/internal/quotation/adapters/postgres"
 	"github.com/example/cross-border-logistics/internal/quotation/application"
+	"github.com/example/cross-border-logistics/internal/quotation/ports"
 	"github.com/example/cross-border-logistics/pkg/config"
 	"github.com/example/cross-border-logistics/pkg/httpx"
 	"github.com/example/cross-border-logistics/pkg/logger"
@@ -33,7 +36,11 @@ func main() {
 		log.Fatal(err)
 	}
 	repository := quotationpostgres.New(pool)
-	service := application.NewService(repository, adapters.MockExchangeRates{}, adapters.MockRestrictionChecker{})
+	var rates ports.ExchangeRateProvider = adapters.MockExchangeRates{}
+	if endpoint := os.Getenv("EXCHANGE_RATE_BASE_URL"); endpoint != "" {
+		rates = adapters.NewHTTPExchangeRates(endpoint, 550*time.Millisecond)
+	}
+	service := application.NewService(repository, rates, adapters.MockRestrictionChecker{}, adapters.DemoProductExtractor{})
 	handler := quotationhttp.New(service, serviceLogger, cfg.ServiceName)
 	if err := httpx.Run(serviceLogger, cfg.Port, handler); err != nil {
 		serviceLogger.Error("service stopped with error", "error", err)

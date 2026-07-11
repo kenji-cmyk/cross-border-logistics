@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	paymentadapters "github.com/example/cross-border-logistics/internal/payment/adapters"
 	paymenthttp "github.com/example/cross-border-logistics/internal/payment/adapters/http"
 	"github.com/example/cross-border-logistics/internal/payment/adapters/orderclient"
 	paymentpostgres "github.com/example/cross-border-logistics/internal/payment/adapters/postgres"
@@ -50,8 +53,12 @@ func main() {
 		return
 	}
 	orderReader := orderclient.New(cfg.OrderServiceURL, cfg.HTTPClientTimeout)
-	service := application.NewService(repository, orderReader)
-	handler := paymenthttp.New(service, serviceLogger, cfg.ServiceName)
+	webhookSecret := strings.TrimSpace(os.Getenv("PAYMENT_WEBHOOK_SECRET"))
+	if strings.EqualFold(cfg.AppEnv, "production") && webhookSecret == "" {
+		log.Fatal("PAYMENT_WEBHOOK_SECRET is required in production")
+	}
+	service := application.NewService(repository, orderReader, paymentadapters.MockHostedGateway{})
+	handler := paymenthttp.New(service, serviceLogger, cfg.ServiceName, webhookSecret, cfg.AppEnv)
 	worker := sharedkafka.NewOutboxWorker(repository, producer, cfg.OutboxPollInterval, serviceLogger)
 	var workers sync.WaitGroup
 	workers.Add(1)

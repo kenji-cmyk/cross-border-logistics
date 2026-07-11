@@ -21,8 +21,8 @@ const (
 	StatusOutForDelivery                OrderStatus = "OUT_FOR_DELIVERY"
 	StatusDelivered                     OrderStatus = "DELIVERED"
 	StatusCancelled                     OrderStatus = "CANCELLED"
-	InitialTrackingDescription                      = "Order is waiting for deposit payment"
-	DepositSucceededTrackingDescription             = "Deposit payment received; order is waiting for purchase"
+	InitialTrackingDescription                      = "Đơn hàng đã được tạo, đang chờ thanh toán tiền cọc"
+	DepositSucceededTrackingDescription             = "Đã nhận tiền cọc, đơn hàng đang chờ mua hàng"
 	PackageReceivedTrackingDescription              = "Kiện hàng đã được tiếp nhận tại kho nước ngoài"
 )
 

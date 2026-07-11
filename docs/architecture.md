@@ -2,7 +2,7 @@
 
 ## System context
 
-The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin actors, plus external payment, exchange-rate, and domestic-delivery providers. Only the demo subset is implemented: customer-style quotation/order/payment calls, warehouse package receipt, and read-only Admin rates. All external providers are mocks or future-state boundaries.
+The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin actors, plus external payment, exchange-rate, and domestic-delivery providers. The implemented sequence covers URL-led quotation extraction, explicit confirmation, hosted deposits, signed callbacks, Kafka Order transitions, SSE notifications, warehouse receipt, and read-only Admin rates. Provider adapters remain deterministic in offline demo mode.
 
 ## Container-level architecture
 
@@ -14,6 +14,7 @@ flowchart LR
     Nginx --> Payment
     Nginx --> Warehouse
     Nginx --> Admin
+    Nginx --> Notification
     Quotation --> QuotationDB[(quotation_db)]
     Order --> OrderDB[(order_db)]
     Payment --> PaymentDB[(payment_db)]
@@ -22,23 +23,25 @@ flowchart LR
     Payment --> Kafka
     Warehouse --> Kafka
     Kafka --> Order
+    Kafka --> Notification
     KafkaUI --> Kafka
 ```
 
-Nginx exposes only the public REST API. Five Go containers, PostgreSQL, Kafka, Kafka UI, and the one-shot topic initializer share a private Compose network.
+Nginx exposes public REST and SSE APIs. Six Go containers, PostgreSQL, Kafka, Kafka UI, and the one-shot topic initializer share a private Compose network.
 
 ## Service responsibilities
 
-- Quotation owns product validation, mock exchange rates, fee calculation, and quotations.
+- Quotation owns allowlisted extraction, restriction checks, exchange rates, fee calculation, expiration, and idempotent Order confirmation.
 - Order owns Order state, items, tracking timeline, idempotent consumers, and Order outbox events.
-- Payment owns deposit payments and their success outbox event.
+- Payment owns hosted deposits, HMAC-verified replay-safe callbacks, and their success outbox event.
+- Notification consumes Order status events and exposes a bounded-replay SSE stream.
 - Warehouse owns foreign-warehouse packages and their receipt outbox event.
 - Admin exposes a validated, immutable configuration snapshot and has no runtime database/Kafka dependency.
 
 ## Synchronous communication
 
 ```text
-Order -> Quotation: GET /internal/quotations/{quotationId}
+Order -> Quotation: GET /internal/quotations/{quotationId}, POST /internal/quotations/{quotationId}/confirm
 Payment -> Order: GET /internal/orders/{orderId}/payment-summary
 Warehouse -> Order: GET /internal/orders/{orderId}/warehouse-summary
 ```
@@ -59,7 +62,7 @@ sequenceDiagram
     Order->>OrderDB: ARRIVED_FOREIGN_WAREHOUSE + timeline + processed event + outbox
 ```
 
-Order also publishes `order.created.v1` and `order.status_changed.v1` from its outbox. Nginx never consumes Kafka.
+Order also publishes `order.created.v1` and `order.status_changed.v1` from its outbox. Notification consumes status changes; Nginx only routes SSE and never consumes Kafka.
 
 ## Data ownership
 
@@ -76,7 +79,7 @@ The single PostgreSQL container hosts `quotation_db`, `order_db`, `payment_db`, 
 
 ## Demo deployment
 
-One EC2 instance runs Docker Compose: Nginx, five Go services, one PostgreSQL container, one Kafka broker, and optional demo-only Kafka UI. Only Nginx port 80 should be public. See [EC2 deployment](ec2-deployment.md).
+One EC2 instance runs Docker Compose: Nginx, six Go services, one PostgreSQL container, one Kafka broker, and optional demo-only Kafka UI. Only Nginx port 80 should be public. See [EC2 deployment](ec2-deployment.md).
 
 ## Target production architecture (future state only)
 

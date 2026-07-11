@@ -63,14 +63,14 @@ func (r *Repository) MarkFailed(ctx context.Context, id, message string) error {
 }
 
 func (r *Repository) ProcessPaymentSucceeded(ctx context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
-	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusWaitingPurchase)
+	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusWaitingPurchase, input.AmountVND)
 }
 
 func (r *Repository) ProcessPackageReceived(ctx context.Context, input ports.ProcessPackageReceived) (bool, error) {
-	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusArrivedForeignWarehouse)
+	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusArrivedForeignWarehouse, 0)
 }
 
-func (r *Repository) processStatusEvent(ctx context.Context, eventID, eventType, orderID string, processedAt time.Time, tracking domain.TrackingEvent, outbox ports.OutboxEvent, target domain.OrderStatus) (bool, error) {
+func (r *Repository) processStatusEvent(ctx context.Context, eventID, eventType, orderID string, processedAt time.Time, tracking domain.TrackingEvent, outbox ports.OutboxEvent, target domain.OrderStatus, expectedAmount int64) (bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin payment event: %w", err)
@@ -87,10 +87,14 @@ func (r *Repository) processStatusEvent(ctx context.Context, eventID, eventType,
 		return false, nil
 	}
 	var current domain.OrderStatus
-	if err := tx.QueryRow(ctx, `SELECT status FROM orders WHERE id=$1 FOR UPDATE`, orderID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
+	var depositAmount int64
+	if err := tx.QueryRow(ctx, `SELECT status,deposit_amount_vnd FROM orders WHERE id=$1 FOR UPDATE`, orderID).Scan(&current, &depositAmount); errors.Is(err, pgx.ErrNoRows) {
 		return false, domain.ErrOrderNotFound
 	} else if err != nil {
 		return false, fmt.Errorf("lock order: %w", err)
+	}
+	if expectedAmount > 0 && expectedAmount != depositAmount {
+		return false, domain.ErrInvalidInput
 	}
 	if !domain.CanTransition(current, target) {
 		return false, domain.ErrInvalidTransition
@@ -119,6 +123,17 @@ func (r *Repository) Create(ctx context.Context, order domain.Order, tracking do
 		return fmt.Errorf("begin create order: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var existingQuotation string
+	err = tx.QueryRow(ctx, `SELECT quotation_id::text FROM orders WHERE id=$1`, order.ID).Scan(&existingQuotation)
+	if err == nil {
+		if existingQuotation != order.QuotationID {
+			return domain.ErrQuotationConflict
+		}
+		return tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("check idempotent order: %w", err)
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO orders (id,customer_id,quotation_id,delivery_address,total_amount_vnd,deposit_amount_vnd,remaining_amount_vnd,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, order.ID, order.CustomerID, order.QuotationID, order.DeliveryAddress, order.TotalAmountVND, order.DepositAmountVND, order.RemainingAmountVND, order.Status, order.CreatedAt, order.UpdatedAt)
 	if err != nil {
 		var pgError *pgconn.PgError
