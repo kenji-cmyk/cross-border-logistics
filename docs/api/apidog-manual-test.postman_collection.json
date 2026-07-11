@@ -1,0 +1,367 @@
+{
+  "info": {
+    "_postman_id": "b5ddce9c-f62c-4b8b-84a1-5a352fd2ba07",
+    "name": "Cross-border Logistics - Manual API Flow",
+    "description": "Import this Postman Collection v2.1 file into ApiDog. Run requests in numbered order. IDs are captured automatically. Start the stack with docker compose up -d --build first. The mock-success endpoint is available only when APP_ENV is development or demo.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost", "type": "string" },
+    { "key": "runId", "value": "", "type": "string" },
+    { "key": "quotationId", "value": "", "type": "string" },
+    { "key": "orderId", "value": "", "type": "string" },
+    { "key": "paymentId", "value": "", "type": "string" },
+    { "key": "packageId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 - Health and configuration",
+      "item": [
+        {
+          "name": "Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+          }]
+        },
+        {
+          "name": "Get admin rates",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Request-ID", "value": "apidog-manual-rates" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/admin/rates", "host": ["{{baseUrl}}"], "path": ["api", "v1", "admin", "rates"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Request ID is preserved', () => pm.expect(pm.response.json().meta.requestId).to.eql('apidog-manual-rates'));"
+            ] }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "01 - Quotation",
+      "item": [
+        {
+          "name": "Extract quotation (start a new run)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.collectionVariables.set('runId', 'manual-' + Date.now());",
+                "['quotationId', 'orderId', 'paymentId', 'packageId'].forEach(key => pm.collectionVariables.unset(key));"
+              ] }
+            },
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": [
+                "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                "const json = pm.response.json();",
+                "pm.test('Quotation is pending confirmation', () => pm.expect(json.data.status).to.eql('PENDING_CONFIRMATION'));",
+                "pm.test('Expected demo total is 1,485,000 VND', () => pm.expect(json.data.totalAmountVnd).to.eql(1485000));",
+                "pm.collectionVariables.set('quotationId', json.data.id);"
+              ] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"customer-{{runId}}\",\n  \"productUrl\": \"https://shop.example/item/main?name=Wireless%20Keyboard&price=50&currency=USD&image=https%3A%2F%2Fcdn.example%2Fkeyboard.png&run={{runId}}\",\n  \"quantity\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/quotations/extract", "host": ["{{baseUrl}}"], "path": ["api", "v1", "quotations", "extract"] }
+          }
+        },
+        {
+          "name": "Get quotation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/quotations/{{quotationId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "quotations", "{{quotationId}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "02 - Order",
+      "item": [
+        {
+          "name": "Create order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quotationId\": \"{{quotationId}}\",\n  \"deliveryAddress\": \"Thu Duc City, Ho Chi Minh City\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('Order waits for deposit', () => pm.expect(json.data.status).to.eql('WAITING_DEPOSIT'));",
+              "pm.collectionVariables.set('orderId', json.data.orderId);"
+            ] }
+          }]
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+          }]
+        },
+        {
+          "name": "Get initial timeline",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/timeline", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}", "timeline"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "03 - Payment",
+      "item": [
+        {
+          "name": "Create deposit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/deposit", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "deposit"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "const json = pm.response.json();",
+              "pm.test('Payment is pending', () => pm.expect(json.data.status).to.eql('PENDING'));",
+              "pm.collectionVariables.set('paymentId', json.data.paymentId);"
+            ] }
+          }]
+        },
+        {
+          "name": "Get payment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "{{paymentId}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+          }]
+        },
+        {
+          "name": "Mark payment successful (development/demo only)",
+          "request": {
+            "description": "This helper route exists only when APP_ENV is development or demo. After calling it, wait 1-2 seconds for Kafka consumers before checking the order.",
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/{{paymentId}}/mock-success", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "{{paymentId}}", "mock-success"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Payment succeeded', () => pm.expect(pm.response.json().data.status).to.eql('SUCCEEDED'));"
+            ] }
+          }]
+        },
+        {
+          "name": "Check order is WAITING_PURCHASE (retry after 1-2s if needed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Order is ready for purchase', () => pm.expect(pm.response.json().data.status).to.eql('WAITING_PURCHASE'));"
+            ] }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "04 - Warehouse and tracking",
+      "item": [
+        {
+          "name": "Receive package",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"sourceTrackingNumber\": \"CN-{{runId}}\",\n  \"warehouseCode\": \"CN-GZ-01\",\n  \"weightKg\": 1.4,\n  \"lengthCm\": 30,\n  \"widthCm\": 20,\n  \"heightCm\": 15\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/warehouse/packages/receive", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouse", "packages", "receive"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+              "pm.collectionVariables.set('packageId', pm.response.json().data.packageId);"
+            ] }
+          }]
+        },
+        {
+          "name": "Get package",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/warehouse/packages/{{packageId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "warehouse", "packages", "{{packageId}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));"] }
+          }]
+        },
+        {
+          "name": "Get final order timeline (retry after 1-2s if needed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/timeline", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders", "{{orderId}}", "timeline"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "pm.test('Timeline contains foreign warehouse arrival', () => {",
+              "  const events = pm.response.json().data;",
+              "  pm.expect(events.some(event => event.status === 'ARRIVED_FOREIGN_WAREHOUSE')).to.eql(true);",
+              "});"
+            ] }
+          }]
+        },
+        {
+          "name": "Open order notification stream (stop manually)",
+          "request": {
+            "description": "Server-Sent Events stream. ApiDog keeps this request open; stop it manually after seeing ': connected' and any order.status_changed events.",
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/notifications/orders/{{orderId}}/stream", "host": ["{{baseUrl}}"], "path": ["api", "v1", "notifications", "orders", "{{orderId}}", "stream"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "90 - Negative cases (independent)",
+      "item": [
+        {
+          "name": "Reject unsafe HTTP product URL",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"negative-test\",\n  \"productUrl\": \"http://shop.example/item/1\",\n  \"quantity\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/quotations/extract", "host": ["{{baseUrl}}"], "path": ["api", "v1", "quotations", "extract"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+              "pm.test('Correct error code', () => pm.expect(pm.response.json().error.code).to.eql('UNSAFE_PRODUCT_URL'));"
+            ] }
+          }]
+        },
+        {
+          "name": "Reject raw card fields",
+          "request": {
+            "description": "Run after the happy-path order exists. This confirms the API never accepts raw card data.",
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"cardNumber\": \"4111111111111111\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/deposit", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "deposit"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400', () => pm.response.to.have.status(400));"] }
+          }]
+        },
+        {
+          "name": "Order with missing quotation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quotationId\": \"11111111-1111-4111-8111-111111111111\",\n  \"deliveryAddress\": \"HCMC\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 404', () => pm.response.to.have.status(404));"] }
+          }]
+        },
+        {
+          "name": "Invalid payment callback signature",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Webhook-Signature", "value": "t=0,v1=00" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"invalid-signature\",\n  \"providerReference\": \"invalid-provider\",\n  \"status\": \"SUCCEEDED\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/callback", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "callback"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": { "type": "text/javascript", "exec": [
+              "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+              "pm.test('Correct error code', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_WEBHOOK_SIGNATURE'));"
+            ] }
+          }]
+        }
+      ]
+    }
+  ]
+}
