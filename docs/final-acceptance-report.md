@@ -10,6 +10,22 @@
 > transition, and public-port SSE replay. The legacy report below documents the
 > earlier warehouse slice and is retained as historical evidence.
 
+## Sequence E2E regression suite
+
+Run the complete repeatable suite from the repository root on Windows:
+
+```powershell
+.\scripts\sequence-e2e.ps1 -IncludeDependencyFailure
+```
+
+The suite covers 25 scenarios: public health, controlled quotation latency,
+malformed and unknown fields, product restrictions, unsafe and unsupported URLs,
+unsupported currency, request-ID propagation, Order validation/customer matching,
+six-way concurrent Order/deposit/callback idempotency, callback signature/staleness,
+transactional database invariants, duplicate Kafka delivery, SSE replay/reconnect,
+warehouse compatibility, deprecated routes, and exchange-provider exhaustion with
+automatic restoration. The 2026-07-11 run completed with **25 passed, 0 failed**.
+
 ## Scope
 
 Phase 8 adds reproducible validation, an asserted end-to-end demo, complete architecture/API/event/deployment/troubleshooting documentation, safe reset commands, and Compose readiness. It introduces no new business service or workflow.
@@ -32,7 +48,7 @@ docker compose up -d --build
 make demo
 ```
 
-Final verification on 2026-07-11 passed: formatting check, `go test ./...`, `go vet ./...`, `go build ./...`, `docker compose config --quiet`, all five application healthchecks, Nginx configuration validation, Docker image builds, and the complete demo through `ARRIVED_FOREIGN_WAREHOUSE`. The host did not have `jq`, so the unchanged demo script was executed from a disposable Alpine container on the Compose network with Bash, curl, and jq.
+Final verification on 2026-07-11 passed: formatting check, `go test ./...`, `go vet ./...`, `go build ./...`, `docker compose config --quiet`, all six application healthchecks, Nginx configuration validation, Docker image builds, and the complete demo through `ARRIVED_FOREIGN_WAREHOUSE`. The host did not have `jq`, so the unchanged demo script was executed from a disposable Alpine container on the Compose network with Bash, curl, and jq.
 
 ## Known demo limitations
 

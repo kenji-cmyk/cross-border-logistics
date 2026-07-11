@@ -123,7 +123,10 @@ make test
 make vet
 make build
 docker compose config
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sequence-e2e.ps1 -IncludeDependencyFailure
 ```
+
+The sequence E2E runner executes 25 public-API and infrastructure scenarios, including validation and SSRF rejection, quotation latency, concurrent idempotency, signed webhook replay, database/outbox invariants, Kafka duplicate delivery, SSE reconnect, warehouse regression, and exchange-rate dependency failure with automatic service restoration.
 
 ## Kafka UI
 

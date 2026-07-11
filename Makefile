@@ -1,6 +1,6 @@
 BACKEND_DIR := backend
 
-.PHONY: fmt test vet build compose-up compose-down compose-logs demo reset-demo
+.PHONY: fmt test vet build compose-up compose-down compose-logs demo sequence-e2e reset-demo
 
 fmt:
 	cd $(BACKEND_DIR) && gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
@@ -25,6 +25,9 @@ compose-logs:
 
 demo:
 	bash scripts/demo.sh
+
+sequence-e2e:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sequence-e2e.ps1 -IncludeDependencyFailure
 
 reset-demo:
 	bash scripts/reset-demo.sh
