@@ -15,7 +15,7 @@ Product URL -> Extracted Quotation -> Confirmed Order (WAITING_DEPOSIT)
 
 ## Architecture
 
-The public Nginx container serves the React frontend and forwards browser API requests to an internal Nginx API gateway. Six Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, Order consumers use `processed_events` for idempotency, and Notification streams status changes through SSE. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
+The public Nginx container serves the React frontend and forwards browser API requests to an internal Nginx API gateway. Six Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, Order consumers use `processed_events` for idempotency, and Notification streams status changes through SSE. Admin caches Vietcombank reference selling rates, while Quotation reads that same Admin snapshot before calculating a quotation. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
 
 ## Services
 
@@ -36,49 +36,76 @@ Go 1.25, PostgreSQL 17 Alpine, Apache Kafka 3.9.1 (KRaft), Nginx 1.27 Alpine, Ka
 
 ```text
 cross-border-logistics/
-|-- backend/                         Go microservices
-|   |-- cmd/                         Service entry points
+|-- backend/                              Go microservices
+|   |-- cmd/                              Service composition roots
 |   |   |-- admin-service/
+|   |   |-- notification-service/
 |   |   |-- order-service/
 |   |   |-- payment-service/
 |   |   |-- quotation-service/
 |   |   `-- warehouse-service/
-|   |-- internal/                    Service-specific business code
+|   |-- internal/                         Service-specific code
 |   |   |-- admin/
-|   |   |-- order/
-|   |   |-- payment/
+|   |   |   |-- adapters/
+|   |   |   |   |-- config/              Fixed/offline rate provider
+|   |   |   |   |-- http/                Admin HTTP handler
+|   |   |   |   `-- vietcombank/         Live XML provider and cache
+|   |   |   |-- application/
+|   |   |   |-- domain/
+|   |   |   `-- ports/
 |   |   |-- quotation/
-|   |   `-- warehouse/
-|   |       |-- adapters/            HTTP, Kafka, PostgreSQL, and service clients
-|   |       |-- application/         Use cases and application services
-|   |       |-- domain/              Domain models and rules
-|   |       `-- ports/               Input and output contracts
-|   |-- migrations/                  Per-service database migrations
-|   |-- pkg/                         Shared config, event, HTTP, Kafka, and DB packages
-|   |-- deploy/nginx/                Internal API gateway configuration
-|   |-- scripts/init-databases.sql   PostgreSQL database bootstrap
+|   |   |   |-- adapters/
+|   |   |   |   |-- extraction/          Routing, metadata parsing, and SSRF safety
+|   |   |   |   |-- http/                Public/internal quotation handlers
+|   |   |   |   |-- postgres/            Quotation persistence
+|   |   |   |   |-- admin_rates.go       Cached Admin snapshot client
+|   |   |   |   `-- product_extractor.go Demo product extractor
+|   |   |   |-- application/
+|   |   |   |-- domain/
+|   |   |   `-- ports/
+|   |   |-- order/                        Order, timeline, Kafka consumers, outbox
+|   |   |-- payment/                      Deposits, callbacks, and payment outbox
+|   |   `-- warehouse/                    Foreign package receipt and outbox
+|   |-- migrations/                       Per-service database migrations
+|   |-- pkg/                              Shared config, event, HTTP, Kafka, logging, DB
+|   |-- deploy/nginx/                     Internal API gateway configuration
+|   |-- scripts/init-databases.sql        PostgreSQL database bootstrap
 |   |-- Dockerfile
 |   |-- go.mod
+|   |-- go.sum
 |   `-- Makefile
-|-- frontend/                        React and TypeScript web application
-|   |-- deploy/nginx.conf            Production frontend Nginx configuration
+|-- frontend/                             React and TypeScript web application
+|   |-- deploy/nginx.conf                 Production frontend Nginx configuration
 |   |-- src/
-|   |   |-- components/              Landing-page and shared UI components
-|   |   |-- hooks/                   Reusable React hooks
-|   |   |-- lib/                     API client and utilities
-|   |   |-- pages/                   Page-level components
-|   |   |-- styles/                  Fonts, global styles, and theme tokens
-|   |   |-- test/                    Test setup
-|   |   `-- types/                   Shared TypeScript types
+|   |   |-- app/                          Providers and application layout
+|   |   |-- components/                   Landing-page and shared UI components
+|   |   |-- features/                     Frontend API feature boundary
+|   |   |-- hooks/                        Reusable React hooks
+|   |   |-- lib/                          API client, formatting, and storage
+|   |   |-- pages/                        Page-level components
+|   |   |-- styles/                       Fonts, globals, and theme tokens
+|   |   |-- test/                         Test setup
+|   |   `-- types/                        Runtime-validated API types
 |   |-- Dockerfile
 |   |-- package.json
+|   |-- package-lock.json
 |   |-- tailwind.config.js
 |   `-- vite.config.ts
-|-- docs/                            Architecture, API, events, deployment, and guides
-|-- scripts/                         Demo, readiness, and reset scripts
-|-- .env.example                     Environment variable template
-|-- compose.yaml                     Complete local demo stack
-|-- Makefile                         Validation and Compose shortcuts
+|-- docs/
+|   |-- api/                              ApiDog/Postman manual-test collection
+|   |-- api-examples.md
+|   |-- architecture.md
+|   |-- CODEX_IMPLEMENTATION_PLAN.md
+|   |-- ec2-deployment.md
+|   |-- final-acceptance-report.md
+|   |-- FRONTEND_IMPLEMENTATION_PLAN.md
+|   |-- kafka-events.md
+|   |-- SEQUENCE_ALIGNMENT_REFACTOR_PLAN.md
+|   `-- troubleshooting.md
+|-- scripts/                              Demo, E2E, readiness, and reset scripts
+|-- .env.example                          Environment variable template
+|-- compose.yaml                          Complete local demo stack
+|-- Makefile                              Validation and Compose shortcuts
 `-- README.md
 ```
 
@@ -98,6 +125,43 @@ make demo
 ```
 
 If executable bits were not preserved by the transfer, run `chmod +x scripts/*.sh`. The UI is available at `http://localhost/`, frontend health at `/ui-health`, and gateway health at `/health`. Individual backend containers are not published to the host.
+
+The default Compose configuration requires outbound HTTPS access from `admin-service` to load Vietcombank exchange rates. For a deterministic offline run, set `EXCHANGE_RATE_PROVIDER=fixed` in `.env` before starting the stack.
+
+## Exchange rates
+
+Docker Compose defaults to `EXCHANGE_RATE_PROVIDER=vietcombank`. Admin fetches the [official Vietcombank XML feed](https://portal.vietcombank.com.vn/Usercontrols/TVPortal.TyGia/pXML.aspx) and uses the `Sell` value because the quotation represents buying foreign currency to pay for imported goods. Decimal values are rounded to the nearest whole VND to match the existing quotation contract.
+
+```text
+Vietcombank XML feed
+        |
+        v
+Admin cached snapshot ----> GET /api/v1/admin/rates
+        |
+        v
+Quotation calculation ----> persisted exchangeRate and VND totals
+```
+
+The snapshot is cached for at least five minutes. If a refresh fails after a successful load, Admin returns the last successful snapshot; if the initial load fails, the rates endpoint returns an error and Quotation maps the dependency failure to `502 EXCHANGE_RATE_UNAVAILABLE`. This prevents silently calculating a quotation with invented or unexpectedly stale fixed values.
+
+Important environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `EXCHANGE_RATE_PROVIDER` | `vietcombank` in Compose | `vietcombank` for external rates or `fixed` for offline mode |
+| `EXCHANGE_RATE_FETCH_TIMEOUT` | `2s` | Total timeout for the Vietcombank request |
+| `EXCHANGE_RATE_CACHE_TTL` | `5m` | Cache and failed-refresh backoff; values below five minutes are rejected |
+| `VIETCOMBANK_EXCHANGE_RATE_URL` | Official XML endpoint | Override for controlled testing or provider endpoint changes |
+| `ADMIN_RATES_URL` | `http://admin-service:8080/api/v1/admin/rates` | Internal snapshot URL used by Quotation |
+| `ADMIN_EXCHANGE_RATE_*` | Currency-specific defaults | Values used only in `fixed` mode |
+
+Inspect the active snapshot with:
+
+```bash
+curl -sS http://localhost/api/v1/admin/rates | jq
+```
+
+The supported source currencies remain controlled by `ADMIN_SUPPORTED_CURRENCIES` and default to `USD,CNY,JPY,KRW`.
 
 ## Manual API demo
 
@@ -149,7 +213,7 @@ The safer scripted form is `make reset-demo`; destructive reset requires `./scri
 
 - Demo customer identity remains request-scoped; production must derive it from authentication. Real provider certification, broad marketplace scraping, domestic shipping API, and local TLS remain out of scope.
 - One Kafka broker, one PostgreSQL container, and one single-node EC2 deployment; no production HA and no claim of supporting 2,000 concurrent users.
-- Admin rates are configuration-backed and do not dynamically update Quotation.
+- Vietcombank rates are reference selling rates cached for at least five minutes, not guaranteed executable foreign-exchange quotes. The provider has no SLA or secondary live-provider failover in this demo.
 - The demo intentionally transitions directly from `WAITING_PURCHASE` to `ARRIVED_FOREIGN_WAREHOUSE`.
 
 ## Production evolution
