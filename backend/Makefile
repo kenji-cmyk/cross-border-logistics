@@ -1,6 +1,6 @@
 SERVICES := quotation-service order-service payment-service warehouse-service admin-service
 
-.PHONY: run build test fmt vet compose-up compose-down compose-logs demo
+.PHONY: run build test fmt vet compose-up compose-down compose-logs demo reset-demo
 
 run:
 	go run ./cmd/quotation-service
@@ -27,4 +27,7 @@ compose-logs:
 	docker compose -f ../compose.yaml --project-directory .. logs -f
 
 demo:
-	@echo "The end-to-end demo script is added in Phase 8."
+	bash ../scripts/demo.sh
+
+reset-demo:
+	bash ../scripts/reset-demo.sh

@@ -23,6 +23,12 @@ x-service: &go-service
       condition: service_completed_successfully
   networks:
     - logistics
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null"]
+    interval: 10s
+    timeout: 3s
+    retries: 10
+    start_period: 10s
 
 services:
   postgres:
@@ -169,19 +175,27 @@ services:
 
   admin-service:
     <<: *go-service
+    depends_on: {}
     build:
       context: ./backend
       args:
         SERVICE: admin-service
     environment:
       APP_ENV: ${APP_ENV:-development}
-      POSTGRES_USER: ${POSTGRES_USER:-logistics}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-logistics}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      ADMIN_DB: ${ADMIN_DB:-admin_db}
       ADMIN_SERVICE_PORT: 8080
-      KAFKA_BROKERS: kafka:9092
+      ADMIN_SERVICE_FEE_PERCENT: ${ADMIN_SERVICE_FEE_PERCENT:-5}
+      ADMIN_ESTIMATED_SHIPPING_FEE_VND: ${ADMIN_ESTIMATED_SHIPPING_FEE_VND:-120000}
+      ADMIN_DEPOSIT_PERCENT: ${ADMIN_DEPOSIT_PERCENT:-70}
+      ADMIN_SUPPORTED_CURRENCIES: ${ADMIN_SUPPORTED_CURRENCIES:-USD,CNY,JPY,KRW}
+      ADMIN_EXCHANGE_RATE_USD: ${ADMIN_EXCHANGE_RATE_USD:-26000}
+      ADMIN_EXCHANGE_RATE_CNY: ${ADMIN_EXCHANGE_RATE_CNY:-3600}
+      ADMIN_EXCHANGE_RATE_JPY: ${ADMIN_EXCHANGE_RATE_JPY:-175}
+      ADMIN_EXCHANGE_RATE_KRW: ${ADMIN_EXCHANGE_RATE_KRW:-19}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ready >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   nginx:
     image: nginx:1.27-alpine
@@ -192,11 +206,16 @@ services:
       - ./backend/deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./backend/deploy/nginx/proxy-headers.conf:/etc/nginx/proxy-headers.conf:ro
     depends_on:
-      - quotation-service
-      - order-service
-      - payment-service
-      - warehouse-service
-      - admin-service
+      quotation-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      warehouse-service:
+        condition: service_healthy
+      admin-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null"]
       interval: 10s

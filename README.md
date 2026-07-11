@@ -1,99 +1,114 @@
-# Cross-Border Logistics
+# Cross-Border Shopping and Logistics Microservices Template
 
-This repository is an academic microservices template. Phase 6 implements the Quotation, Order, Payment, and foreign Warehouse Services with transactional outboxes and Kafka-driven Order updates. Admin remains a health-check skeleton.
+## Project overview
 
-## Quotation Service
+This is an academic, runnable source-code template for a cross-border assisted-shopping system. It demonstrates one event-driven microservice vertical slice; it is not a complete production system.
 
-The service validates products, obtains a mock exchange rate, calculates fees without floating-point arithmetic, persists quotations in `quotation_db`, and exposes:
+## Implemented business flow
 
-- `POST /api/v1/quotations`
-- `GET /api/v1/quotations/{quotationId}`
-- `GET /internal/quotations/{quotationId}` (Docker-network only; not routed by Nginx)
-
-Mock rates in VND are USD 26,000, CNY 3,600, JPY 175, and KRW 19. Restricted keywords (case-insensitive, checked in product name and URL) are `weapon`, `gun`, `explosive`, `battery-liquid`, and `dangerous-chemical`.
-
-Source prices are represented internally as fixed-point integers with six decimal places. Calculated VND amounts are rounded to the nearest integer, the service fee is 5%, and estimated shipping is 120,000 VND.
-
-## Order Service
-
-The Order Service creates an order from a `PENDING_CONFIRMATION` quotation owned by the requesting customer. It calculates a 70% deposit, persists the order and item, creates the initial tracking event, and stores an `order.created.v1` envelope in its transactional outbox. Its outbox worker publishes pending events to Kafka.
-
-It exposes:
-
-- `POST /api/v1/orders`
-- `GET /api/v1/orders/{orderId}`
-- `GET /api/v1/orders/{orderId}/timeline`
-- `GET /internal/orders/{orderId}/payment-summary` (Docker-network only; not routed by Nginx)
-- `GET /internal/orders/{orderId}/warehouse-summary` (Docker-network only; not routed by Nginx)
-
-Creating a second order for the same quotation returns `409 CONFLICT`. The Order Service reads quotation data only through `GET /internal/quotations/{quotationId}` and never accesses `quotation_db` directly.
-
-## Payment Service
-
-The Payment Service reads the required deposit and current order status through the Order Service internal payment-summary API, then stores one pending deposit payment per order in `payment_db`. It exposes:
-
-- `POST /api/v1/payments/deposits`
-- `GET /api/v1/payments/{paymentId}`
-- `POST /api/v1/payments/{paymentId}/mock-success`
-
-Mock success atomically changes a payment from `PENDING` to `SUCCEEDED` and inserts a full `payment.deposit_succeeded.v1` envelope into the Payment transactional outbox. Repeating mock success is idempotent and does not create another outbox event. The outbox publishes asynchronously; Order Service consumes idempotently and advances the Order to `WAITING_PURCHASE`.
-
-## Warehouse Service
-
-`POST /api/v1/warehouse/packages/receive` validates an Order through the internal warehouse-summary API, accepts only `WAITING_PURCHASE`, and atomically stores a Package plus `package.received.v1` in `warehouse_db`. The request returns after that database commit and does not wait for Kafka processing. A warehouse outbox worker publishes with the Order ID as the Kafka key. Order Service consumes through group `order-service-warehouse-events`, then atomically updates the Order, adds the Vietnamese tracking description, records `processed_events`, and creates `order.status_changed.v1` in its own outbox.
-
-For the source-code template, `package.received.v1` advances an Order directly from `WAITING_PURCHASE` to `ARRIVED_FOREIGN_WAREHOUSE`. In a production workflow, `PURCHASED` and `IN_TRANSIT_TO_FOREIGN_WAREHOUSE` would normally occur first.
-
-Source tracking numbers are trimmed, uppercased, and globally unique in this simplified template. Physical measurements use `float64` in Go and PostgreSQL `NUMERIC(10,3)` for kilograms / `NUMERIC(10,2)` for centimetres; all must be positive and no greater than 500.
-
-## Run locally
-
-```bash
-docker compose up -d --build postgres quotation-service order-service payment-service nginx
-curl http://localhost/health
+```text
+Quotation -> Order (WAITING_DEPOSIT) -> Deposit Payment -> Kafka
+-> Order (WAITING_PURCHASE) -> Foreign Warehouse Package -> Kafka
+-> Order (ARRIVED_FOREIGN_WAREHOUSE) -> Tracking Timeline
 ```
 
-Create and retrieve a quotation:
+## Architecture
 
-```bash
-curl -X POST http://localhost/api/v1/quotations \
-  -H "Content-Type: application/json" \
-  -d '{"customerId":"customer-001","productUrl":"https://example.com/product/123","productName":"Wireless Keyboard","sourcePrice":50,"currency":"USD","quantity":1}'
+Nginx is the public API gateway. Five Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, and Order consumers use `processed_events` for idempotency. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
 
-curl http://localhost/api/v1/quotations/<quotation-id>
+## Services
+
+| Service | Responsibility / database | Public API | Kafka |
+|---|---|---|---|
+| Quotation | Validate products and calculate mock-rate quotations / `quotation_db` | `POST`, `GET /api/v1/quotations...` | None |
+| Order | Create Orders, own status and timeline / `order_db` | `POST`, `GET /api/v1/orders...` | Produces `order.created.v1`, `order.status_changed.v1`; consumes payment/package events |
+| Payment | Create and mock-complete deposits / `payment_db` | `/api/v1/payments...` | Produces `payment.deposit_succeeded.v1` |
+| Warehouse | Receive and retrieve foreign packages / `warehouse_db` | `/api/v1/warehouse/packages...` | Produces `package.received.v1` |
+| Admin | Read configuration-backed demo rates / no runtime database | `GET /api/v1/admin/rates` | None |
+
+## Technology stack
+
+Go 1.25, PostgreSQL 17 Alpine, Apache Kafka 3.9.1 (KRaft), Nginx 1.27 Alpine, Kafka UI 0.7.2, Docker Compose, `pgx/v5`, and `franz-go`. Exact Go dependencies are in `backend/go.mod`.
+
+## Repository structure
+
+```text
+backend/{cmd,internal,pkg,migrations,deploy}/
+scripts/                 demo, wait, reset, database initialization
+docs/                    architecture, API, events, deployment, troubleshooting
+compose.yaml             complete demo stack
+Makefile                 validation and Compose shortcuts
 ```
 
-Create an order and read its timeline:
+## Prerequisites
+
+Docker with the Compose plugin and Git are enough to run the stack. The automated demo also needs `curl`, `jq`, and Bash. Local development additionally needs Go 1.25.
+
+## Quick start
 
 ```bash
-curl -X POST http://localhost/api/v1/orders \
-  -H "Content-Type: application/json" \
-  -d '{"quotationId":"<quotation-id>","customerId":"customer-001","deliveryAddress":"Thu Duc City, Ho Chi Minh City"}'
-
-curl http://localhost/api/v1/orders/<order-id>/timeline
+git clone <repository-url> # replace with the real repository URL
+cd cross-border-logistics
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+make demo
 ```
 
-Create, retrieve, and simulate a successful deposit payment:
+If executable bits were not preserved by the transfer, run `chmod +x scripts/*.sh`. Gateway health is available at `http://localhost/health`.
+
+## Manual API demo
+
+Copyable requests for the full flow, response examples, and polling commands are in [API examples](docs/api-examples.md). The automated equivalent is:
 
 ```bash
-curl -X POST http://localhost/api/v1/payments/deposits \
-  -H "Content-Type: application/json" \
-  -d '{"orderId":"<order-id>"}'
-
-curl http://localhost/api/v1/payments/<payment-id>
-curl -X POST http://localhost/api/v1/payments/<payment-id>/mock-success
+BASE_URL=http://localhost make demo
 ```
 
-After the payment event advances the Order, receive a package:
+## Kafka event flow
+
+Payment and Warehouse commit business state and an event envelope in one PostgreSQL transaction. Outbox workers publish pending records. Order consumers process at least once, update Order/timeline and insert the event ID into `processed_events` in one transaction, then commit the Kafka offset. Duplicate delivery therefore does not duplicate the state change. See [Kafka event contracts](docs/kafka-events.md).
+
+## Database ownership
+
+Each service connects only to its own logical database. Cross-service reads use internal REST endpoints; there are no cross-service foreign keys or direct database reads.
+
+## Testing
 
 ```bash
-curl -X POST http://localhost/api/v1/warehouse/packages/receive \
-  -H "Content-Type: application/json" \
-  -d '{"orderId":"<order-id>","sourceTrackingNumber":"CN123456789","warehouseCode":"CN-GZ-01","weightKg":1.4,"lengthCm":30,"widthCm":20,"heightCm":15}'
+make fmt
+make test
+make vet
+make build
+docker compose config
 ```
 
-See [API examples](docs/api-examples.md) for success and error examples.
+## Kafka UI
 
-## Current Phase 6 limitations
+Kafka UI is at `http://localhost:8088` and can show topics, records, and consumer groups. **Kafka UI is for local/demo environments only.** Do not expose it publicly on EC2; restrict it to your IP or use an SSH tunnel.
 
-Rates, restriction rules, and payment processing are mocks. There is no authentication, real exchange-rate integration, scraping, shipment consolidation, domestic warehouse flow, remaining-payment flow, delivery integration, or Admin business logic. The deployment uses one Kafka broker and one PostgreSQL container and is a local/demo single-node stack, not production HA. Local Compose has no TLS and does not demonstrate 2,000 concurrent users. Kafka UI on port 8088 is for local/demo environments only.
+## EC2 deployment
+
+See the [single-instance EC2 deployment guide](docs/ec2-deployment.md).
+
+## Stopping and cleaning
+
+```bash
+docker compose down       # keeps PostgreSQL volume data
+docker compose down -v    # permanently deletes project volumes and PostgreSQL data
+```
+
+The safer scripted form is `make reset-demo`; destructive reset requires `./scripts/reset-demo.sh --delete-data` and confirmation.
+
+## Current limitations
+
+- No authentication, RBAC, real payment gateway, product scraping, exchange-rate integration, domestic shipping API, or TLS in local Compose.
+- One Kafka broker, one PostgreSQL container, and one single-node EC2 deployment; no production HA and no claim of supporting 2,000 concurrent users.
+- Admin rates are configuration-backed and do not dynamically update Quotation.
+- The demo intentionally transitions directly from `WAITING_PURCHASE` to `ARRIVED_FOREIGN_WAREHOUSE`.
+
+## Production evolution
+
+A future production system could add a load balancer, autoscaling, TLS, authentication, a secrets manager, managed PostgreSQL, a Kafka cluster, observability, object storage, and the complete Order workflow. None of those capabilities are implemented here.
+
+See [troubleshooting](docs/troubleshooting.md) and the [final acceptance report](docs/final-acceptance-report.md).

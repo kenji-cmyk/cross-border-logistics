@@ -15,6 +15,7 @@ import (
 
 type Service interface {
 	ReceivePackage(context.Context, application.ReceivePackageInput) (domain.Package, error)
+	Get(context.Context, string) (domain.Package, error)
 }
 type Handler struct {
 	service Service
@@ -37,7 +38,16 @@ func New(service Service, logger *slog.Logger, serviceName string) http.Handler 
 		httpx.WriteJSON(w, http.StatusOK, httpx.Health{Status: "UP", Service: serviceName})
 	})
 	mux.HandleFunc("POST /api/v1/warehouse/packages/receive", h.receive)
+	mux.HandleFunc("GET /api/v1/warehouse/packages/{packageId}", h.get)
 	return mux
+}
+func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+	pkg, err := h.service.Get(r.Context(), r.PathValue("packageId"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httpx.WriteSuccess(w, r, http.StatusOK, pkg)
 }
 func (h *Handler) receive(w http.ResponseWriter, r *http.Request) {
 	d := json.NewDecoder(io.LimitReader(r.Body, 1<<20))

@@ -30,6 +30,18 @@ func NewService(repository ports.PackageRepository, orders ports.OrderReader) *S
 	return &Service{repository: repository, orders: orders, now: time.Now}
 }
 
+func (s *Service) Get(ctx context.Context, id string) (domain.Package, error) {
+	packageID, err := uuid.Parse(strings.TrimSpace(id))
+	if err != nil {
+		return domain.Package{}, domain.ErrInvalidPackageInput
+	}
+	pkg, err := s.repository.FindByID(ctx, packageID)
+	if err != nil {
+		return domain.Package{}, err
+	}
+	return *pkg, nil
+}
+
 func (s *Service) ReceivePackage(ctx context.Context, input ReceivePackageInput) (domain.Package, error) {
 	orderID, err := uuid.Parse(strings.TrimSpace(input.OrderID))
 	if err != nil {
