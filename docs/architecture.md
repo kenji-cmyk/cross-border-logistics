@@ -2,7 +2,7 @@
 
 ## System context
 
-The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin actors, plus external payment, exchange-rate, and domestic-delivery providers. The implemented sequence covers URL-led quotation extraction, explicit confirmation, hosted deposits, signed callbacks, Kafka Order transitions, SSE notifications, warehouse receipt, and read-only Admin rates. Provider adapters remain deterministic in offline demo mode.
+The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin actors, plus external payment, exchange-rate, and domestic-delivery providers. The implemented sequence covers URL-led quotation extraction, explicit confirmation, hosted deposits, signed callbacks, Kafka Order transitions, SSE notifications, warehouse receipt, and read-only Admin rates. Product extraction remains deterministic in demo mode; exchange rates can use either fixed offline values or Vietcombank's public reference feed.
 
 ## Container-level architecture
 
@@ -15,6 +15,8 @@ flowchart LR
     Nginx --> Warehouse
     Nginx --> Admin
     Nginx --> Notification
+    Vietcombank --> Admin
+    Quotation --> Admin
     Quotation --> QuotationDB[(quotation_db)]
     Order --> OrderDB[(order_db)]
     Payment --> PaymentDB[(payment_db)]
@@ -31,12 +33,12 @@ Nginx exposes public REST and SSE APIs. Six Go containers, PostgreSQL, Kafka, Ka
 
 ## Service responsibilities
 
-- Quotation owns allowlisted extraction, restriction checks, exchange rates, fee calculation, expiration, and idempotent Order confirmation.
+- Quotation owns allowlisted extraction, restriction checks, exchange-rate use, fee calculation, expiration, and idempotent Order confirmation.
 - Order owns Order state, items, tracking timeline, idempotent consumers, and Order outbox events.
 - Payment owns hosted deposits, HMAC-verified replay-safe callbacks, and their success outbox event.
 - Notification consumes Order status events and exposes a bounded-replay SSE stream.
 - Warehouse owns foreign-warehouse packages and their receipt outbox event.
-- Admin exposes a validated, immutable configuration snapshot and has no runtime database/Kafka dependency.
+- Admin exposes a validated rate snapshot and has no runtime database/Kafka dependency. In `vietcombank` mode it reads selling rates from the official XML feed, rounds them to the nearest VND, and caches the snapshot for at least five minutes. A stale successful snapshot is retained if a later refresh temporarily fails.
 
 ## Synchronous communication
 
@@ -44,6 +46,7 @@ Nginx exposes public REST and SSE APIs. Six Go containers, PostgreSQL, Kafka, Ka
 Order -> Quotation: GET /internal/quotations/{quotationId}, POST /internal/quotations/{quotationId}/confirm
 Payment -> Order: GET /internal/orders/{orderId}/payment-summary
 Warehouse -> Order: GET /internal/orders/{orderId}/warehouse-summary
+Quotation -> Admin: GET /api/v1/admin/rates (private Compose network)
 ```
 
 These internal endpoints are reachable inside the Docker network and are not routed by Nginx.

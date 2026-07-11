@@ -128,7 +128,9 @@ Test-Case "Canonical quotation extraction is below 2.5 seconds" {
     }
     Assert-True ($script:quotation.Status -eq 200) $script:quotation.Content
     Assert-True ($script:quotation.DurationMs -lt 2500) "latency was $($script:quotation.DurationMs) ms"
-    Assert-True ($script:quotation.Json.data.totalAmountVnd -eq 1485000) "unexpected quotation total"
+    $productAmount = 50 * $script:quotation.Json.data.exchangeRate
+    $expectedTotal = $productAmount + [math]::Floor((($productAmount * 5) + 50) / 100) + 120000
+    Assert-True ($script:quotation.Json.data.totalAmountVnd -eq $expectedTotal) "unexpected quotation total"
     Assert-True ($script:quotation.Json.data.productName -eq "Wireless Keyboard") "metadata extraction failed"
 }
 

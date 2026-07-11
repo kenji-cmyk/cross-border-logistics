@@ -73,7 +73,8 @@ echo "[2/10] Creating quotation..."
 quotation=$(api_request POST "$BASE_URL/api/v1/quotations/extract" "$(jq -nc --arg customer "$customer_id" --arg run "$run_id" '{customerId:$customer,productUrl:("https://shop.example/item/keyboard?name=Wireless%20Keyboard&price=50&currency=USD&demo="+$run),quantity:1}')")
 quotation_id=$(jq -r '.data.id' <<<"$quotation")
 assert_json "$quotation" '.data.status' 'PENDING_CONFIRMATION' 'Quotation status'
-assert_json "$quotation" '.data.totalAmountVnd|tostring' '1485000' 'Quotation total'
+expected_total=$(jq -r '(.data.exchangeRate * 50) as $amount | $amount + (((($amount * 5) + 50) / 100) | floor) + 120000' <<<"$quotation")
+assert_json "$quotation" '.data.totalAmountVnd|tostring' "$expected_total" 'Quotation total'
 echo "Quotation ID: $quotation_id"
 echo "Total amount: $(jq -r '.data.totalAmountVnd' <<<"$quotation") VND"
 

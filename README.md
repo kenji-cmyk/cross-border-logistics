@@ -26,7 +26,7 @@ The public Nginx container serves the React frontend and forwards browser API re
 | Payment | Create hosted deposits and verify signed callbacks / `payment_db` | `/api/v1/payments...` | Produces `payment.deposit_succeeded.v1` |
 | Notification | Stream Order status changes / no database | `/api/v1/notifications...` | Consumes `order.status_changed.v1` |
 | Warehouse | Receive and retrieve foreign packages / `warehouse_db` | `/api/v1/warehouse/packages...` | Produces `package.received.v1` |
-| Admin | Read configuration-backed demo rates / no runtime database | `GET /api/v1/admin/rates` | None |
+| Admin | Cache Vietcombank selling rates or serve fixed offline rates / no runtime database | `GET /api/v1/admin/rates` | None |
 
 ## Technology stack
 

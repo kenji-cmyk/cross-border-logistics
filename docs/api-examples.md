@@ -37,7 +37,7 @@ QUOTATION_ID=$(echo "$QUOTATION" | jq -r '.data.id')
 curl -sS "$BASE_URL/api/v1/quotations/$QUOTATION_ID" | jq
 ```
 
-Expected quotation status is `PENDING_CONFIRMATION`; total is `1485000` VND.
+Expected quotation status is `PENDING_CONFIRMATION`. The total varies with the current exchange rate returned in `data.exchangeRate`.
 
 ### Product extraction modes
 
@@ -100,3 +100,9 @@ curl -sS "$BASE_URL/api/v1/admin/rates" | jq
 ```
 
 Admin defaults are service fee `5`, shipping fee `120000` VND, and deposit `70`. Common errors are `VALIDATION_ERROR` (400), `NOT_FOUND` (404), `CONFLICT` or `INVALID_STATE` (409), `DEPENDENCY_ERROR` (502), and `INTERNAL_ERROR` (500).
+
+### Exchange-rate provider
+
+Docker Compose defaults to `EXCHANGE_RATE_PROVIDER=vietcombank`. Admin requests the official Vietcombank XML feed, uses the `Sell` value for each configured source currency, rounds it to the nearest whole VND, and exposes one cached snapshot through `/api/v1/admin/rates`. Quotation reads that same Admin snapshot, so displayed rates and quotation calculations remain consistent. The provider timestamp is returned as `effectiveAt`.
+
+The cache TTL cannot be shorter than five minutes because the source asks clients not to request more frequently. A previously loaded snapshot remains available during a temporary refresh failure. For offline or deterministic runs, set `EXCHANGE_RATE_PROVIDER=fixed`; the existing `ADMIN_EXCHANGE_RATE_*` values then apply.

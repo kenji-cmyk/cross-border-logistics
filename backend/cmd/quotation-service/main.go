@@ -40,6 +40,8 @@ func main() {
 	var rates ports.ExchangeRateProvider = adapters.MockExchangeRates{}
 	if endpoint := os.Getenv("EXCHANGE_RATE_BASE_URL"); endpoint != "" {
 		rates = adapters.NewHTTPExchangeRates(endpoint, 550*time.Millisecond)
+	} else if endpoint := os.Getenv("ADMIN_RATES_URL"); endpoint != "" {
+		rates = adapters.NewAdminHTTPExchangeRates(endpoint, 2*time.Second)
 	}
 	extractionConfig, err := extraction.LoadConfig(os.Getenv)
 	if err != nil {

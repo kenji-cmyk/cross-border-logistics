@@ -26,4 +26,8 @@ Check `docker compose ps` and the target service logs. Nginx starts only after s
 
 ## Configuration changes are ignored
 
-Edit `.env`, then run `docker compose up -d --force-recreate`. Admin reads rates once at startup. Existing PostgreSQL data persists across ordinary `down`/`up` cycles.
+Edit `.env`, then run `docker compose up -d --force-recreate`. Fixed Admin settings are read at startup; live exchange rates refresh after `EXCHANGE_RATE_CACHE_TTL`. Existing PostgreSQL data persists across ordinary `down`/`up` cycles.
+
+## Live exchange rates are unavailable
+
+The default Compose configuration reads Vietcombank's public selling-rate XML feed through Admin and caches it for five minutes. Check outbound HTTPS/DNS from `admin-service`, then inspect its logs. The first request returns an error if no live snapshot has ever loaded; after one successful load, a temporary refresh failure serves the last known snapshot. Set `EXCHANGE_RATE_PROVIDER=fixed` and recreate Admin and Quotation for deterministic offline development.
