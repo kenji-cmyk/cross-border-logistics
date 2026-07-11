@@ -1,0 +1,11 @@
+@keyframes fade-rise { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes route-dash { to { stroke-dashoffset: -24; } }
+.animate-fade-rise { animation: fade-rise .8s ease-out both; }
+.animate-fade-rise-delay { animation: fade-rise .8s ease-out .2s both; }
+.animate-fade-rise-delay-2 { animation: fade-rise .8s ease-out .4s both; }
+.route-motion { animation: route-dash 3s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .animate-fade-rise, .animate-fade-rise-delay, .animate-fade-rise-delay-2, .route-motion { animation: none; }
+  *, *::before, *::after { transition-duration: .01ms !important; }
+}

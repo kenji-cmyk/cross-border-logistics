@@ -82,7 +82,7 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
     ports:
-      - "8088:8080"
+      - "127.0.0.1:8088:8080"
     depends_on:
       kafka:
         condition: service_healthy
@@ -197,11 +197,9 @@ services:
       timeout: 3s
       retries: 5
 
-  nginx:
+  api-gateway:
     image: nginx:1.27-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
     volumes:
       - ./backend/deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./backend/deploy/nginx/proxy-headers.conf:/etc/nginx/proxy-headers.conf:ro
@@ -218,6 +216,25 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - logistics
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""
+    restart: unless-stopped
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ui-health >/dev/null"]
       interval: 10s
       timeout: 3s
       retries: 5

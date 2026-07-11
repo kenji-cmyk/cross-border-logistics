@@ -14,7 +14,7 @@ Quotation -> Order (WAITING_DEPOSIT) -> Deposit Payment -> Kafka
 
 ## Architecture
 
-Nginx is the public API gateway. Five Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, and Order consumers use `processed_events` for idempotency. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
+The public Nginx container serves the React frontend and forwards browser API requests to an internal Nginx API gateway. Five Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, and Order consumers use `processed_events` for idempotency. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
 
 ## Services
 
@@ -34,6 +34,7 @@ Go 1.25, PostgreSQL 17 Alpine, Apache Kafka 3.9.1 (KRaft), Nginx 1.27 Alpine, Ka
 
 ```text
 backend/{cmd,internal,pkg,migrations,deploy}/
+frontend/                React UI and its production Nginx image
 scripts/                 demo, wait, reset, database initialization
 docs/                    architecture, API, events, deployment, troubleshooting
 compose.yaml             complete demo stack
@@ -55,7 +56,7 @@ docker compose ps
 make demo
 ```
 
-If executable bits were not preserved by the transfer, run `chmod +x scripts/*.sh`. Gateway health is available at `http://localhost/health`.
+If executable bits were not preserved by the transfer, run `chmod +x scripts/*.sh`. The UI is available at `http://localhost/`, frontend health at `/ui-health`, and gateway health at `/health`. Individual backend containers are not published to the host.
 
 ## Manual API demo
 

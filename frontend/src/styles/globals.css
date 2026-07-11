@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; min-width: 320px; background: #f7f9fc; color: #0b1220; font-family: Inter, sans-serif; }
+  button, input { font: inherit; }
+  ::selection { background: #dbeafe; color: #0b1220; }
+}

@@ -1,0 +1,4 @@
+const items = [["✓", "Transparent quotation"], ["◇", "Secure deposit workflow"], ["↗", "Milestone-based tracking"]];
+export function TrustIndicators() {
+  return <div aria-label="Service assurances" className="mt-8 flex flex-wrap items-center justify-center gap-2">{items.map(([icon,label]) => <div key={label} className="inline-flex items-center gap-2 rounded-full border border-black/[.08] bg-white/55 px-3.5 py-2 text-xs font-medium text-[#667085] backdrop-blur-md"><span aria-hidden="true" className="grid h-5 w-5 place-items-center rounded-full bg-[#EFF6FF] text-[10px] text-[#2563EB]">{icon}</span>{label}</div>)}</div>;
+}
