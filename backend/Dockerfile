@@ -6,7 +6,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY cmd ./cmd
+COPY internal ./internal
 COPY pkg ./pkg
+COPY migrations ./migrations
 
 ARG SERVICE
 RUN test -n "$SERVICE" && CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/app ./cmd/${SERVICE}
