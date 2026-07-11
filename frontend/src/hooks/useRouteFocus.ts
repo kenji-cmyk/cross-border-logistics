@@ -1,0 +1,4 @@
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+const titleFor = (pathname: string) => pathname === "/" ? "Shopping & Logistics" : pathname === "/quote" ? "New Quotation" : pathname.includes("/checkout") ? "Delivery Address" : pathname.includes("/payment") ? "Deposit Payment" : pathname.startsWith("/tracking/") ? "Order Tracking" : pathname === "/rates" ? "Current Rates" : pathname === "/admin/rates" ? "Admin Rates" : pathname === "/warehouse/receive" ? "Receive Package" : pathname.startsWith("/warehouse/packages/") ? "Package Receipt" : pathname.startsWith("/quote/") ? "Quotation Review" : "Page Not Found";
+export function useRouteFocus() { const { pathname } = useLocation(); useEffect(() => { document.title = `${titleFor(pathname)} · CrossBorder`; window.scrollTo(0, 0); window.requestAnimationFrame(() => document.querySelector<HTMLElement>("h1")?.focus()); }, [pathname]); }

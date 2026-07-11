@@ -1,11 +1,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
 @layer base {
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; min-width: 320px; background: #f7f9fc; color: #0b1220; font-family: Inter, sans-serif; }
-  button, input { font: inherit; }
+  body { margin: 0; min-width: 320px; overflow-x: hidden; background: #f7f9fc; color: #0b1220; font-family: Inter, sans-serif; }
+  button, input, textarea { font: inherit; }
+  button, a, input, textarea, summary { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
   ::selection { background: #dbeafe; color: #0b1220; }
+  h1[tabindex="-1"]:focus { outline: none; }
 }

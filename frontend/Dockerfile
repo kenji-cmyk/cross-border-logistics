@@ -9,7 +9,9 @@ COPY . .
 
 # An empty base URL makes the browser use the same public origin as the UI.
 ARG VITE_API_BASE_URL=
+ARG VITE_DEMO_MODE=true
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_DEMO_MODE=${VITE_DEMO_MODE}
 RUN npm run build
 
 FROM nginx:1.27-alpine

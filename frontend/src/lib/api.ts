@@ -1,6 +1,6 @@
 import type { ApiErrorResponse, ApiSuccess } from "../types/api";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost";
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 export class ApiError extends Error {

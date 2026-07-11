@@ -10,11 +10,15 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@tanstack/react-query": "5.101.2",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
+    "lucide-react": "1.24.0",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "react-router-dom": "7.18.1",
+    "typescript": "latest",
+    "vite": "latest",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "latest",
