@@ -23,6 +23,7 @@ const (
 	StatusCancelled                     OrderStatus = "CANCELLED"
 	InitialTrackingDescription                      = "Order is waiting for deposit payment"
 	DepositSucceededTrackingDescription             = "Deposit payment received; order is waiting for purchase"
+	PackageReceivedTrackingDescription              = "Kiện hàng đã được tiếp nhận tại kho nước ngoài"
 )
 
 var (

@@ -18,6 +18,7 @@ type Service interface {
 	Get(context.Context, string) (domain.Order, error)
 	Timeline(context.Context, string) ([]domain.TrackingEvent, error)
 	GetPaymentSummary(context.Context, string) (application.PaymentSummary, error)
+	GetWarehouseSummary(context.Context, string) (application.WarehouseSummary, error)
 }
 
 type Handler struct {
@@ -41,7 +42,17 @@ func New(service Service, logger *slog.Logger, serviceName string) http.Handler 
 	mux.HandleFunc("GET /api/v1/orders/{orderId}", h.get)
 	mux.HandleFunc("GET /api/v1/orders/{orderId}/timeline", h.timeline)
 	mux.HandleFunc("GET /internal/orders/{orderId}/payment-summary", h.paymentSummary)
+	mux.HandleFunc("GET /internal/orders/{orderId}/warehouse-summary", h.warehouseSummary)
 	return mux
+}
+
+func (h *Handler) warehouseSummary(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetWarehouseSummary(r.Context(), r.PathValue("orderId"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httpx.WriteSuccess(w, r, http.StatusOK, result)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

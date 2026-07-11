@@ -12,6 +12,7 @@ const (
 	OrderCreated            = "order.created.v1"
 	PaymentDepositSucceeded = "payment.deposit_succeeded.v1"
 	OrderStatusChanged      = "order.status_changed.v1"
+	PackageReceived         = "package.received.v1"
 )
 
 type Envelope struct {
@@ -51,4 +52,15 @@ type OrderStatusChangedData struct {
 	PreviousStatus string    `json:"previousStatus"`
 	CurrentStatus  string    `json:"currentStatus"`
 	Description    string    `json:"description"`
+}
+
+type PackageReceivedData struct {
+	PackageID            uuid.UUID `json:"packageId"`
+	OrderID              uuid.UUID `json:"orderId"`
+	SourceTrackingNumber string    `json:"sourceTrackingNumber"`
+	WarehouseCode        string    `json:"warehouseCode"`
+	WeightKg             float64   `json:"weightKg"`
+	LengthCm             float64   `json:"lengthCm"`
+	WidthCm              float64   `json:"widthCm"`
+	HeightCm             float64   `json:"heightCm"`
 }

@@ -63,13 +63,21 @@ func (r *Repository) MarkFailed(ctx context.Context, id, message string) error {
 }
 
 func (r *Repository) ProcessPaymentSucceeded(ctx context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
+	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusWaitingPurchase)
+}
+
+func (r *Repository) ProcessPackageReceived(ctx context.Context, input ports.ProcessPackageReceived) (bool, error) {
+	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusArrivedForeignWarehouse)
+}
+
+func (r *Repository) processStatusEvent(ctx context.Context, eventID, eventType, orderID string, processedAt time.Time, tracking domain.TrackingEvent, outbox ports.OutboxEvent, target domain.OrderStatus) (bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin payment event: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var processed bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM processed_events WHERE event_id=$1)`, input.EventID).Scan(&processed); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM processed_events WHERE event_id=$1)`, eventID).Scan(&processed); err != nil {
 		return false, fmt.Errorf("check processed event: %w", err)
 	}
 	if processed {
@@ -79,24 +87,24 @@ func (r *Repository) ProcessPaymentSucceeded(ctx context.Context, input ports.Pr
 		return false, nil
 	}
 	var current domain.OrderStatus
-	if err := tx.QueryRow(ctx, `SELECT status FROM orders WHERE id=$1 FOR UPDATE`, input.OrderID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT status FROM orders WHERE id=$1 FOR UPDATE`, orderID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
 		return false, domain.ErrOrderNotFound
 	} else if err != nil {
 		return false, fmt.Errorf("lock order: %w", err)
 	}
-	if !domain.CanTransition(current, domain.StatusWaitingPurchase) {
+	if !domain.CanTransition(current, target) {
 		return false, domain.ErrInvalidTransition
 	}
-	if _, err := tx.Exec(ctx, `UPDATE orders SET status=$2,updated_at=$3 WHERE id=$1`, input.OrderID, domain.StatusWaitingPurchase, input.ProcessedAt); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE orders SET status=$2,updated_at=$3 WHERE id=$1`, orderID, target, processedAt); err != nil {
 		return false, fmt.Errorf("update order from payment event: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO tracking_events (id,order_id,status,description,source,occurred_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, input.Tracking.ID, input.Tracking.OrderID, input.Tracking.Status, input.Tracking.Description, input.Tracking.Source, input.Tracking.OccurredAt, input.Tracking.CreatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO tracking_events (id,order_id,status,description,source,occurred_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, tracking.ID, tracking.OrderID, tracking.Status, tracking.Description, tracking.Source, tracking.OccurredAt, tracking.CreatedAt); err != nil {
 		return false, fmt.Errorf("insert payment tracking event: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO processed_events (event_id,event_type,processed_at) VALUES ($1,$2,$3)`, input.EventID, input.EventType, input.ProcessedAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO processed_events (event_id,event_type,processed_at) VALUES ($1,$2,$3)`, eventID, eventType, processedAt); err != nil {
 		return false, fmt.Errorf("insert processed event: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO outbox_events (id,aggregate_id,event_type,payload,created_at) VALUES ($1,$2,$3,$4,$5)`, input.Outbox.ID, input.Outbox.AggregateID, input.Outbox.EventType, input.Outbox.Payload, input.Outbox.CreatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO outbox_events (id,aggregate_id,event_type,payload,created_at) VALUES ($1,$2,$3,$4,$5)`, outbox.ID, outbox.AggregateID, outbox.EventType, outbox.Payload, outbox.CreatedAt); err != nil {
 		return false, fmt.Errorf("insert status outbox event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

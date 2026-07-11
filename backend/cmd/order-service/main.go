@@ -54,6 +54,12 @@ func main() {
 		return
 	}
 	defer consumer.Close()
+	warehouseConsumer, err := orderkafka.NewWarehouseConsumer(cfg.KafkaBrokers, "order-service-warehouse-events", service, serviceLogger)
+	if err != nil {
+		serviceLogger.Error("warehouse Kafka consumer startup failed", "error", err)
+		return
+	}
+	defer warehouseConsumer.Close()
 	if err := sharedkafka.WaitReady(ctx, producer, 5, time.Second); err != nil {
 		serviceLogger.Error("Kafka producer unavailable", "error", err)
 		return
@@ -62,12 +68,17 @@ func main() {
 		serviceLogger.Error("Kafka consumer unavailable", "error", err)
 		return
 	}
+	if err := sharedkafka.WaitReady(ctx, warehouseConsumer, 5, time.Second); err != nil {
+		serviceLogger.Error("warehouse Kafka consumer unavailable", "error", err)
+		return
+	}
 	handler := orderhttp.New(service, serviceLogger, cfg.ServiceName)
 	outboxWorker := sharedkafka.NewOutboxWorker(repository, producer, cfg.OutboxPollInterval, serviceLogger)
 	var workers sync.WaitGroup
-	workers.Add(2)
+	workers.Add(3)
 	go func() { defer workers.Done(); outboxWorker.Run(ctx) }()
 	go func() { defer workers.Done(); consumer.Run(ctx) }()
+	go func() { defer workers.Done(); warehouseConsumer.Run(ctx) }()
 	if err := httpx.RunContext(ctx, serviceLogger, cfg.Port, handler); err != nil {
 		serviceLogger.Error("service stopped with error", "error", err)
 	}

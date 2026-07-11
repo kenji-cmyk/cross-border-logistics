@@ -31,6 +31,9 @@ func (f fakeService) Timeline(context.Context, string) ([]domain.TrackingEvent, 
 func (f fakeService) GetPaymentSummary(context.Context, string) (application.PaymentSummary, error) {
 	return application.PaymentSummary{OrderID: orderID, DepositAmountVND: 700, RemainingAmountVND: 300, Status: domain.StatusWaitingDeposit}, f.err
 }
+func (f fakeService) GetWarehouseSummary(context.Context, string) (application.WarehouseSummary, error) {
+	return application.WarehouseSummary{OrderID: orderID, CustomerID: "customer-001", Status: domain.StatusWaitingPurchase}, f.err
+}
 
 func handler(service fakeService) http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -47,6 +50,7 @@ func TestOrderEndpoints(t *testing.T) {
 		{http.MethodGet, "/api/v1/orders/" + orderID, "", http.StatusOK, `"orderId":"` + orderID + `"`},
 		{http.MethodGet, "/api/v1/orders/" + orderID + "/timeline", "", http.StatusOK, `"status":"WAITING_DEPOSIT"`},
 		{http.MethodGet, "/internal/orders/" + orderID + "/payment-summary", "", http.StatusOK, `"depositAmountVnd":700`},
+		{http.MethodGet, "/internal/orders/" + orderID + "/warehouse-summary", "", http.StatusOK, `"customerId":"customer-001"`},
 	}
 	for _, tt := range tests {
 		response := httptest.NewRecorder()

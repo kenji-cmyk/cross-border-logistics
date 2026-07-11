@@ -26,14 +26,15 @@ func (f fakeQuotationReader) GetQuotation(context.Context, string) (ports.Quotat
 }
 
 type fakeRepository struct {
-	order          domain.Order
-	tracking       domain.TrackingEvent
-	outbox         ports.OutboxEvent
-	createErr      error
-	timeline       []domain.TrackingEvent
-	processed      ports.ProcessPaymentSucceeded
-	processChanged bool
-	processErr     error
+	order            domain.Order
+	tracking         domain.TrackingEvent
+	outbox           ports.OutboxEvent
+	createErr        error
+	timeline         []domain.TrackingEvent
+	processed        ports.ProcessPaymentSucceeded
+	packageProcessed ports.ProcessPackageReceived
+	processChanged   bool
+	processErr       error
 }
 
 func (f *fakeRepository) Create(_ context.Context, order domain.Order, tracking domain.TrackingEvent, outbox ports.OutboxEvent) error {
@@ -54,6 +55,10 @@ func (f *fakeRepository) FindTimeline(_ context.Context, id string) ([]domain.Tr
 }
 func (f *fakeRepository) ProcessPaymentSucceeded(_ context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
 	f.processed = input
+	return f.processChanged, f.processErr
+}
+func (f *fakeRepository) ProcessPackageReceived(_ context.Context, input ports.ProcessPackageReceived) (bool, error) {
+	f.packageProcessed = input
 	return f.processChanged, f.processErr
 }
 
@@ -95,6 +100,34 @@ func TestHandlePaymentDepositSucceededRejectsInvalidContract(t *testing.T) {
 	_, err := application.NewService(&fakeRepository{}, fakeQuotationReader{}).HandlePaymentDepositSucceeded(context.Background(), envelope)
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestHandlePackageReceivedBuildsAtomicChange(t *testing.T) {
+	repository := &fakeRepository{processChanged: true}
+	service := application.NewService(repository, fakeQuotationReader{})
+	orderID := uuid.MustParse(quotationID)
+	envelope, err := sharedevent.New(sharedevent.PackageReceived, orderID, "warehouse-service", time.Now(), sharedevent.PackageReceivedData{PackageID: uuid.New(), OrderID: orderID, SourceTrackingNumber: "CN123", WarehouseCode: "CN-GZ-01", WeightKg: 1.4, LengthCm: 30, WidthCm: 20, HeightCm: 15})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := service.HandlePackageReceived(context.Background(), envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || repository.packageProcessed.Tracking.Status != domain.StatusArrivedForeignWarehouse || repository.packageProcessed.Tracking.Description != domain.PackageReceivedTrackingDescription {
+		t.Fatalf("unexpected processing: %+v", repository.packageProcessed)
+	}
+	var statusEnvelope sharedevent.Envelope
+	if err := json.Unmarshal(repository.packageProcessed.Outbox.Payload, &statusEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var data sharedevent.OrderStatusChangedData
+	if err := json.Unmarshal(statusEnvelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.PreviousStatus != string(domain.StatusWaitingPurchase) || data.CurrentStatus != string(domain.StatusArrivedForeignWarehouse) {
+		t.Fatalf("unexpected status event: %+v", data)
 	}
 }
 
