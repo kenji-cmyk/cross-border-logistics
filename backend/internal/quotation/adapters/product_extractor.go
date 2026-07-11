@@ -15,12 +15,19 @@ import (
 type DemoProductExtractor struct{}
 
 func (DemoProductExtractor) Extract(_ context.Context, raw string) (ports.ExtractedProduct, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	if len(raw) > 2048 {
+		return ports.ExtractedProduct{}, domain.ErrUnsafeProductURL
+	}
+	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Hostname() == "" {
 		return ports.ExtractedProduct{}, domain.ErrUnsafeProductURL
 	}
 	host := strings.ToLower(u.Hostname())
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast()) {
+	if host == "localhost" {
+		return ports.ExtractedProduct{}, domain.ErrUnsafeProductURL
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.Equal(net.ParseIP("100.100.100.200"))) {
 		return ports.ExtractedProduct{}, domain.ErrUnsafeProductURL
 	}
 	if host != "shop.example" && host != "example.com" {
@@ -37,7 +44,7 @@ func (DemoProductExtractor) Extract(_ context.Context, raw string) (ports.Extrac
 	if currency == "" {
 		currency = "USD"
 	}
-	if len(raw) > 2048 || len(name) > 300 {
+	if len(name) > 300 {
 		return ports.ExtractedProduct{}, domain.ErrExtractionUnavailable
 	}
 	return ports.ExtractedProduct{URL: u.String(), Name: name, SourcePrice: price, Currency: currency, ImageURL: q.Get("image")}, nil

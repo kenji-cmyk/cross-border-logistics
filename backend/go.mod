@@ -7,6 +7,7 @@ require github.com/google/uuid v1.6.0
 require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/twmb/franz-go v1.20.4
+	golang.org/x/net v0.46.0
 )
 
 require (

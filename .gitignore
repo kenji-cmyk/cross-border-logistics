@@ -6,7 +6,7 @@ coverage.out
 .idea/
 .vscode/
 docs/CODEX_IMPLEMENTATION_PLAN.md
-# Frontend dependencies and build output
+docs/FRONTEND_IMPLEMENTATION_PLAN.md
 frontend/node_modules/
 frontend/dist/
 frontend/.env

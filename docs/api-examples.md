@@ -39,6 +39,39 @@ curl -sS "$BASE_URL/api/v1/quotations/$QUOTATION_ID" | jq
 
 Expected quotation status is `PENDING_CONFIRMATION`; total is `1485000` VND.
 
+### Product extraction modes
+
+`PRODUCT_EXTRACTOR_MODE=demo` is the default. It performs no outbound HTTP
+request and preserves the deterministic `shop.example` and `example.com`
+query-parameter fixture shown above. This is the mode used by the local demo
+and sequence tests.
+
+`PRODUCT_EXTRACTOR_MODE=hybrid` keeps those demo domains deterministic and may
+also fetch configured public product pages. Set `PRODUCT_ALLOWED_HOSTS` to a
+comma-separated list of exact hosts, such as
+`store.example,www.store.example`. An explicit wildcard such as
+`*.store.example` enables subdomains but does not enable the base host itself.
+Unsupported hosts return `PRODUCT_EXTRACTION_UNAVAILABLE`; the service never
+fabricates product metadata for them.
+
+The HTTP extractor supports configured public HTTPS product pages that expose
+usable JSON-LD `Product` data, OpenGraph product metadata, or basic HTML
+metadata. It accepts JSON-LD products in `@graph`, `Offer`/`AggregateOffer`
+objects and arrays, and string/array/`ImageObject` images. It does not convert
+currencies; the existing quotation rate provider and calculation flow remain
+responsible for that.
+
+Outbound requests enforce the configured total timeout, response-size and
+redirect limits. Every destination and redirect must remain on an allowed host
+whose DNS answers are all public; credentials, non-HTTPS URLs, private,
+loopback, link-local, multicast, and metadata-service destinations are
+rejected. Only HTML-compatible responses are parsed. JavaScript-only,
+login-protected, CAPTCHA-protected, and anti-bot-protected pages may return
+`PRODUCT_EXTRACTION_UNAVAILABLE`; no browser or bypass mechanism is used.
+
+Optional settings and backward-compatible defaults are documented in
+`.env.example`. A hybrid deployment must configure at least one allowed host.
+
 ```bash
 ORDER=$(curl -sS -X POST "$BASE_URL/api/v1/orders" -H 'Content-Type: application/json' -d "{\"quotationId\":\"$QUOTATION_ID\",\"deliveryAddress\":\"Thu Duc City, Ho Chi Minh City\"}")
 echo "$ORDER" | jq

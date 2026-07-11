@@ -44,6 +44,9 @@ func TestCreateAndGetQuotation(t *testing.T) {
 	if post.Code != http.StatusOK {
 		t.Fatalf("POST status=%d body=%s", post.Code, post.Body.String())
 	}
+	if !strings.Contains(post.Body.String(), `"totalAmountVnd":1485000`) {
+		t.Fatalf("demo quotation total changed: %s", post.Body.String())
+	}
 	var id string
 	marker := `"id":"`
 	start := strings.Index(post.Body.String(), marker)

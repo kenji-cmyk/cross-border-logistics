@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/example/cross-border-logistics/internal/quotation/adapters"
+	"github.com/example/cross-border-logistics/internal/quotation/adapters/extraction"
 	quotationhttp "github.com/example/cross-border-logistics/internal/quotation/adapters/http"
 	quotationpostgres "github.com/example/cross-border-logistics/internal/quotation/adapters/postgres"
 	"github.com/example/cross-border-logistics/internal/quotation/application"
@@ -40,7 +41,24 @@ func main() {
 	if endpoint := os.Getenv("EXCHANGE_RATE_BASE_URL"); endpoint != "" {
 		rates = adapters.NewHTTPExchangeRates(endpoint, 550*time.Millisecond)
 	}
-	service := application.NewService(repository, rates, adapters.MockRestrictionChecker{}, adapters.DemoProductExtractor{})
+	extractionConfig, err := extraction.LoadConfig(os.Getenv)
+	if err != nil {
+		serviceLogger.Error("product extractor configuration is invalid", "error", err)
+		log.Fatal(err)
+	}
+	var productExtractor ports.ProductExtractor = adapters.DemoProductExtractor{}
+	if extractionConfig.Mode == extraction.ModeHybrid {
+		hosts, err := extraction.NewHostMatcher(extractionConfig.AllowedHosts)
+		if err != nil {
+			serviceLogger.Error("product host configuration is invalid", "error", err)
+			log.Fatal(err)
+		}
+		safety := extraction.NewURLSafetyValidator(hosts, nil)
+		client := extraction.NewSafeHTTPClient(extractionConfig.FetchTimeout, extractionConfig.MaxRedirects, safety)
+		httpExtractor := extraction.NewHTTPStructuredProductExtractor(client, safety, extractionConfig.MaxResponseBytes, serviceLogger)
+		productExtractor = extraction.NewRoutingProductExtractor(adapters.DemoProductExtractor{}, httpExtractor, hosts)
+	}
+	service := application.NewService(repository, rates, adapters.MockRestrictionChecker{}, productExtractor)
 	handler := quotationhttp.New(service, serviceLogger, cfg.ServiceName)
 	if err := httpx.Run(serviceLogger, cfg.Port, handler); err != nil {
 		serviceLogger.Error("service stopped with error", "error", err)
