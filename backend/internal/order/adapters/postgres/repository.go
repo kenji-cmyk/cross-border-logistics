@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/example/cross-border-logistics/internal/order/domain"
 	"github.com/example/cross-border-logistics/internal/order/ports"
 	ordermigration "github.com/example/cross-border-logistics/migrations/order"
+	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +24,85 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("migrate orders: %w", err)
 	}
 	return nil
+}
+
+func (r *Repository) FetchUnpublished(ctx context.Context, limit int) ([]sharedkafka.OutboxEvent, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text,aggregate_id::text,event_type,payload FROM outbox_events WHERE published_at IS NULL ORDER BY created_at,id LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch order outbox: %w", err)
+	}
+	defer rows.Close()
+	var events []sharedkafka.OutboxEvent
+	for rows.Next() {
+		var item sharedkafka.OutboxEvent
+		if err := rows.Scan(&item.ID, &item.AggregateID, &item.EventType, &item.Payload); err != nil {
+			return nil, fmt.Errorf("scan order outbox: %w", err)
+		}
+		events = append(events, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate order outbox: %w", err)
+	}
+	return events, nil
+}
+
+func (r *Repository) MarkPublished(ctx context.Context, id string, at time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE outbox_events SET published_at=$2,attempts=attempts+1,last_error=NULL WHERE id=$1 AND published_at IS NULL`, id, at)
+	if err != nil {
+		return fmt.Errorf("mark order outbox published: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) MarkFailed(ctx context.Context, id, message string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE outbox_events SET attempts=attempts+1,last_error=$2 WHERE id=$1 AND published_at IS NULL`, id, message)
+	if err != nil {
+		return fmt.Errorf("mark order outbox failed: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) ProcessPaymentSucceeded(ctx context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin payment event: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var processed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM processed_events WHERE event_id=$1)`, input.EventID).Scan(&processed); err != nil {
+		return false, fmt.Errorf("check processed event: %w", err)
+	}
+	if processed {
+		if err := tx.Commit(ctx); err != nil {
+			return false, fmt.Errorf("commit duplicate event: %w", err)
+		}
+		return false, nil
+	}
+	var current domain.OrderStatus
+	if err := tx.QueryRow(ctx, `SELECT status FROM orders WHERE id=$1 FOR UPDATE`, input.OrderID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
+		return false, domain.ErrOrderNotFound
+	} else if err != nil {
+		return false, fmt.Errorf("lock order: %w", err)
+	}
+	if !domain.CanTransition(current, domain.StatusWaitingPurchase) {
+		return false, domain.ErrInvalidTransition
+	}
+	if _, err := tx.Exec(ctx, `UPDATE orders SET status=$2,updated_at=$3 WHERE id=$1`, input.OrderID, domain.StatusWaitingPurchase, input.ProcessedAt); err != nil {
+		return false, fmt.Errorf("update order from payment event: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO tracking_events (id,order_id,status,description,source,occurred_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, input.Tracking.ID, input.Tracking.OrderID, input.Tracking.Status, input.Tracking.Description, input.Tracking.Source, input.Tracking.OccurredAt, input.Tracking.CreatedAt); err != nil {
+		return false, fmt.Errorf("insert payment tracking event: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO processed_events (event_id,event_type,processed_at) VALUES ($1,$2,$3)`, input.EventID, input.EventType, input.ProcessedAt); err != nil {
+		return false, fmt.Errorf("insert processed event: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO outbox_events (id,aggregate_id,event_type,payload,created_at) VALUES ($1,$2,$3,$4,$5)`, input.Outbox.ID, input.Outbox.AggregateID, input.Outbox.EventType, input.Outbox.Payload, input.Outbox.CreatedAt); err != nil {
+		return false, fmt.Errorf("insert status outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit payment event: %w", err)
+	}
+	return true, nil
 }
 
 func (r *Repository) Create(ctx context.Context, order domain.Order, tracking domain.TrackingEvent, outbox ports.OutboxEvent) error {

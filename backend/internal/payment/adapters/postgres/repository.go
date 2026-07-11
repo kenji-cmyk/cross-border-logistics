@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/example/cross-border-logistics/internal/payment/domain"
 	"github.com/example/cross-border-logistics/internal/payment/ports"
 	paymentmigration "github.com/example/cross-border-logistics/migrations/payment"
+	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +18,42 @@ import (
 type Repository struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
+
+func (r *Repository) FetchUnpublished(ctx context.Context, limit int) ([]sharedkafka.OutboxEvent, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text,aggregate_id::text,event_type,payload FROM outbox_events WHERE published_at IS NULL ORDER BY created_at,id LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch payment outbox: %w", err)
+	}
+	defer rows.Close()
+	var events []sharedkafka.OutboxEvent
+	for rows.Next() {
+		var item sharedkafka.OutboxEvent
+		if err := rows.Scan(&item.ID, &item.AggregateID, &item.EventType, &item.Payload); err != nil {
+			return nil, fmt.Errorf("scan payment outbox: %w", err)
+		}
+		events = append(events, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate payment outbox: %w", err)
+	}
+	return events, nil
+}
+
+func (r *Repository) MarkPublished(ctx context.Context, id string, at time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE outbox_events SET published_at=$2,attempts=attempts+1,last_error=NULL WHERE id=$1 AND published_at IS NULL`, id, at)
+	if err != nil {
+		return fmt.Errorf("mark payment outbox published: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) MarkFailed(ctx context.Context, id, message string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE outbox_events SET attempts=attempts+1,last_error=$2 WHERE id=$1 AND published_at IS NULL`, id, message)
+	if err != nil {
+		return fmt.Errorf("mark payment outbox failed: %w", err)
+	}
+	return nil
+}
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := pool.Exec(ctx, paymentmigration.SQL); err != nil {

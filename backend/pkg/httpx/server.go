@@ -29,7 +29,10 @@ func NewHealthHandler(serviceName string) http.Handler {
 func Run(logger *slog.Logger, port string, handler http.Handler) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	return RunContext(ctx, logger, port, handler)
+}
 
+func RunContext(ctx context.Context, logger *slog.Logger, port string, handler http.Handler) error {
 	server := &http.Server{
 		Addr:              ":" + port,
 		Handler:           RequestIDMiddleware(LoggingMiddleware(logger, handler)),

@@ -8,20 +8,21 @@ import (
 type OrderStatus string
 
 const (
-	StatusWaitingDeposit               OrderStatus = "WAITING_DEPOSIT"
-	StatusWaitingPurchase              OrderStatus = "WAITING_PURCHASE"
-	StatusPurchased                    OrderStatus = "PURCHASED"
-	StatusInTransitToForeignWarehouse  OrderStatus = "IN_TRANSIT_TO_FOREIGN_WAREHOUSE"
-	StatusArrivedForeignWarehouse      OrderStatus = "ARRIVED_FOREIGN_WAREHOUSE"
-	StatusPacked                       OrderStatus = "PACKED"
-	StatusInTransitToDomesticWarehouse OrderStatus = "IN_TRANSIT_TO_DOMESTIC_WAREHOUSE"
-	StatusArrivedDomesticWarehouse     OrderStatus = "ARRIVED_DOMESTIC_WAREHOUSE"
-	StatusWaitingRemainingPayment      OrderStatus = "WAITING_REMAINING_PAYMENT"
-	StatusReadyForDomesticDelivery     OrderStatus = "READY_FOR_DOMESTIC_DELIVERY"
-	StatusOutForDelivery               OrderStatus = "OUT_FOR_DELIVERY"
-	StatusDelivered                    OrderStatus = "DELIVERED"
-	StatusCancelled                    OrderStatus = "CANCELLED"
-	InitialTrackingDescription                     = "Order is waiting for deposit payment"
+	StatusWaitingDeposit                OrderStatus = "WAITING_DEPOSIT"
+	StatusWaitingPurchase               OrderStatus = "WAITING_PURCHASE"
+	StatusPurchased                     OrderStatus = "PURCHASED"
+	StatusInTransitToForeignWarehouse   OrderStatus = "IN_TRANSIT_TO_FOREIGN_WAREHOUSE"
+	StatusArrivedForeignWarehouse       OrderStatus = "ARRIVED_FOREIGN_WAREHOUSE"
+	StatusPacked                        OrderStatus = "PACKED"
+	StatusInTransitToDomesticWarehouse  OrderStatus = "IN_TRANSIT_TO_DOMESTIC_WAREHOUSE"
+	StatusArrivedDomesticWarehouse      OrderStatus = "ARRIVED_DOMESTIC_WAREHOUSE"
+	StatusWaitingRemainingPayment       OrderStatus = "WAITING_REMAINING_PAYMENT"
+	StatusReadyForDomesticDelivery      OrderStatus = "READY_FOR_DOMESTIC_DELIVERY"
+	StatusOutForDelivery                OrderStatus = "OUT_FOR_DELIVERY"
+	StatusDelivered                     OrderStatus = "DELIVERED"
+	StatusCancelled                     OrderStatus = "CANCELLED"
+	InitialTrackingDescription                      = "Order is waiting for deposit payment"
+	DepositSucceededTrackingDescription             = "Deposit payment received; order is waiting for purchase"
 )
 
 var (

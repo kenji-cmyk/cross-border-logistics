@@ -35,4 +35,12 @@ type OrderRepository interface {
 	Create(context.Context, domain.Order, domain.TrackingEvent, OutboxEvent) error
 	FindByID(context.Context, string) (domain.Order, error)
 	FindTimeline(context.Context, string) ([]domain.TrackingEvent, error)
+	ProcessPaymentSucceeded(context.Context, ProcessPaymentSucceeded) (bool, error)
+}
+
+type ProcessPaymentSucceeded struct {
+	EventID, EventType, OrderID string
+	ProcessedAt                 time.Time
+	Tracking                    domain.TrackingEvent
+	Outbox                      OutboxEvent
 }

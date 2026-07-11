@@ -3,13 +3,19 @@ package main
 import (
 	"context"
 	"log"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	orderhttp "github.com/example/cross-border-logistics/internal/order/adapters/http"
+	orderkafka "github.com/example/cross-border-logistics/internal/order/adapters/kafka"
 	orderpostgres "github.com/example/cross-border-logistics/internal/order/adapters/postgres"
 	"github.com/example/cross-border-logistics/internal/order/adapters/quotationclient"
 	"github.com/example/cross-border-logistics/internal/order/application"
 	"github.com/example/cross-border-logistics/pkg/config"
 	"github.com/example/cross-border-logistics/pkg/httpx"
+	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
 	"github.com/example/cross-border-logistics/pkg/logger"
 	sharedpostgres "github.com/example/cross-border-logistics/pkg/postgres"
 )
@@ -21,7 +27,8 @@ func main() {
 	}
 
 	serviceLogger := logger.New(cfg.ServiceName, cfg.AppEnv)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	pool, err := sharedpostgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		serviceLogger.Error("database startup failed", "error", err)
@@ -35,9 +42,35 @@ func main() {
 	repository := orderpostgres.New(pool)
 	quotationReader := quotationclient.New(cfg.QuotationServiceURL, cfg.HTTPClientTimeout)
 	service := application.NewService(repository, quotationReader)
-	handler := orderhttp.New(service, serviceLogger, cfg.ServiceName)
-	if err := httpx.Run(serviceLogger, cfg.Port, handler); err != nil {
-		serviceLogger.Error("service stopped with error", "error", err)
-		log.Fatal(err)
+	producer, err := sharedkafka.NewProducer(cfg.KafkaBrokers)
+	if err != nil {
+		serviceLogger.Error("Kafka producer startup failed", "error", err)
+		return
 	}
+	defer producer.Close()
+	consumer, err := orderkafka.NewConsumer(cfg.KafkaBrokers, "order-service-payment-events", service, serviceLogger)
+	if err != nil {
+		serviceLogger.Error("Kafka consumer startup failed", "error", err)
+		return
+	}
+	defer consumer.Close()
+	if err := sharedkafka.WaitReady(ctx, producer, 5, time.Second); err != nil {
+		serviceLogger.Error("Kafka producer unavailable", "error", err)
+		return
+	}
+	if err := sharedkafka.WaitReady(ctx, consumer, 5, time.Second); err != nil {
+		serviceLogger.Error("Kafka consumer unavailable", "error", err)
+		return
+	}
+	handler := orderhttp.New(service, serviceLogger, cfg.ServiceName)
+	outboxWorker := sharedkafka.NewOutboxWorker(repository, producer, cfg.OutboxPollInterval, serviceLogger)
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() { defer workers.Done(); outboxWorker.Run(ctx) }()
+	go func() { defer workers.Done(); consumer.Run(ctx) }()
+	if err := httpx.RunContext(ctx, serviceLogger, cfg.Port, handler); err != nil {
+		serviceLogger.Error("service stopped with error", "error", err)
+	}
+	stop()
+	workers.Wait()
 }

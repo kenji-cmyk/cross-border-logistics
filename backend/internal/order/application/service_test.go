@@ -10,6 +10,8 @@ import (
 	"github.com/example/cross-border-logistics/internal/order/application"
 	"github.com/example/cross-border-logistics/internal/order/domain"
 	"github.com/example/cross-border-logistics/internal/order/ports"
+	sharedevent "github.com/example/cross-border-logistics/pkg/event"
+	"github.com/google/uuid"
 )
 
 const quotationID = "46ab7a1a-bab7-4a46-b9f9-d7572a284895"
@@ -24,11 +26,14 @@ func (f fakeQuotationReader) GetQuotation(context.Context, string) (ports.Quotat
 }
 
 type fakeRepository struct {
-	order     domain.Order
-	tracking  domain.TrackingEvent
-	outbox    ports.OutboxEvent
-	createErr error
-	timeline  []domain.TrackingEvent
+	order          domain.Order
+	tracking       domain.TrackingEvent
+	outbox         ports.OutboxEvent
+	createErr      error
+	timeline       []domain.TrackingEvent
+	processed      ports.ProcessPaymentSucceeded
+	processChanged bool
+	processErr     error
 }
 
 func (f *fakeRepository) Create(_ context.Context, order domain.Order, tracking domain.TrackingEvent, outbox ports.OutboxEvent) error {
@@ -46,6 +51,51 @@ func (f *fakeRepository) FindTimeline(_ context.Context, id string) ([]domain.Tr
 		return nil, domain.ErrOrderNotFound
 	}
 	return f.timeline, nil
+}
+func (f *fakeRepository) ProcessPaymentSucceeded(_ context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
+	f.processed = input
+	return f.processChanged, f.processErr
+}
+
+func TestHandlePaymentDepositSucceededBuildsAtomicChange(t *testing.T) {
+	repository := &fakeRepository{processChanged: true}
+	service := application.NewService(repository, fakeQuotationReader{})
+	orderID := uuid.MustParse(quotationID)
+	paymentID := uuid.New()
+	envelope, err := sharedevent.New(sharedevent.PaymentDepositSucceeded, orderID, "payment-service", time.Now(), sharedevent.PaymentDepositSucceededData{PaymentID: paymentID, OrderID: orderID, AmountVND: 1_039_500, Currency: "VND"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := service.HandlePaymentDepositSucceeded(context.Background(), envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || repository.processed.EventID != envelope.EventID.String() || repository.processed.Tracking.Status != domain.StatusWaitingPurchase {
+		t.Fatalf("unexpected processing: changed=%v input=%+v", changed, repository.processed)
+	}
+	if repository.processed.Outbox.EventType != sharedevent.OrderStatusChanged {
+		t.Fatalf("unexpected outbox: %+v", repository.processed.Outbox)
+	}
+	var statusEnvelope sharedevent.Envelope
+	if err := json.Unmarshal(repository.processed.Outbox.Payload, &statusEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var data sharedevent.OrderStatusChangedData
+	if err := json.Unmarshal(statusEnvelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.PreviousStatus != string(domain.StatusWaitingDeposit) || data.CurrentStatus != string(domain.StatusWaitingPurchase) || data.OrderID != orderID {
+		t.Fatalf("unexpected status event: %+v", data)
+	}
+}
+
+func TestHandlePaymentDepositSucceededRejectsInvalidContract(t *testing.T) {
+	orderID := uuid.MustParse(quotationID)
+	envelope, _ := sharedevent.New(sharedevent.PaymentDepositSucceeded, orderID, "payment-service", time.Now(), sharedevent.PaymentDepositSucceededData{PaymentID: uuid.New(), OrderID: uuid.New(), AmountVND: 1, Currency: "VND"})
+	_, err := application.NewService(&fakeRepository{}, fakeQuotationReader{}).HandlePaymentDepositSucceeded(context.Background(), envelope)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func validSnapshot() ports.QuotationSnapshot {

@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"log"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	paymenthttp "github.com/example/cross-border-logistics/internal/payment/adapters/http"
 	"github.com/example/cross-border-logistics/internal/payment/adapters/orderclient"
@@ -10,6 +14,7 @@ import (
 	"github.com/example/cross-border-logistics/internal/payment/application"
 	"github.com/example/cross-border-logistics/pkg/config"
 	"github.com/example/cross-border-logistics/pkg/httpx"
+	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
 	"github.com/example/cross-border-logistics/pkg/logger"
 	sharedpostgres "github.com/example/cross-border-logistics/pkg/postgres"
 )
@@ -21,7 +26,8 @@ func main() {
 	}
 
 	serviceLogger := logger.New(cfg.ServiceName, cfg.AppEnv)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	pool, err := sharedpostgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		serviceLogger.Error("database startup failed", "error", err)
@@ -33,11 +39,26 @@ func main() {
 		log.Fatal(err)
 	}
 	repository := paymentpostgres.New(pool)
+	producer, err := sharedkafka.NewProducer(cfg.KafkaBrokers)
+	if err != nil {
+		serviceLogger.Error("Kafka producer startup failed", "error", err)
+		return
+	}
+	defer producer.Close()
+	if err := sharedkafka.WaitReady(ctx, producer, 5, time.Second); err != nil {
+		serviceLogger.Error("Kafka startup failed", "error", err)
+		return
+	}
 	orderReader := orderclient.New(cfg.OrderServiceURL, cfg.HTTPClientTimeout)
 	service := application.NewService(repository, orderReader)
 	handler := paymenthttp.New(service, serviceLogger, cfg.ServiceName)
-	if err := httpx.Run(serviceLogger, cfg.Port, handler); err != nil {
+	worker := sharedkafka.NewOutboxWorker(repository, producer, cfg.OutboxPollInterval, serviceLogger)
+	var workers sync.WaitGroup
+	workers.Add(1)
+	go func() { defer workers.Done(); worker.Run(ctx) }()
+	if err := httpx.RunContext(ctx, serviceLogger, cfg.Port, handler); err != nil {
 		serviceLogger.Error("service stopped with error", "error", err)
-		log.Fatal(err)
 	}
+	stop()
+	workers.Wait()
 }

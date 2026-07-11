@@ -48,3 +48,9 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 
 CREATE INDEX IF NOT EXISTS outbox_events_unpublished_idx
     ON outbox_events (created_at) WHERE published_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS processed_events (
+    event_id UUID PRIMARY KEY,
+    event_type VARCHAR(100) NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL
+);
