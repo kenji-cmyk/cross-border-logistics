@@ -99,7 +99,7 @@ export function DepositPaymentPage() {
                 </p>
                 <div className="mt-1 flex items-center gap-1">
                   <p className="break-all font-mono text-sm">{order.orderId}</p>
-                  <CopyButton value={order.orderId} />
+                  <CopyButton value={order.orderId} label="Copy ID" />
                 </div>
               </div>
               <StatusBadge label={orderStatus.label} tone={orderStatus.tone} />
@@ -167,21 +167,15 @@ export function DepositPaymentPage() {
                     />
                   )}
                 </div>
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-5">
                   <a
                     href={currentPayment.paymentUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-ink px-5 text-sm font-semibold text-white shadow-primary"
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-ink px-5 text-sm font-semibold text-white shadow-primary"
                   >
                     Open payment portal <ArrowUpRight className="h-4 w-4" />
                   </a>
-                  <Button
-                    variant="secondary"
-                    onClick={() => void payment.refetch()}
-                  >
-                    Check payment status
-                  </Button>
                 </div>
                 {DEMO_MODE && currentPayment.status === "PENDING" && (
                   <div className="mt-5 rounded-2xl border border-dashed border-brand/30 bg-brand-soft p-4">
@@ -249,12 +243,6 @@ export function DepositPaymentPage() {
                 View live order tracking
               </Link>
             )}
-            <Link
-              to={`/tracking/${orderId}`}
-              className="flex min-h-12 items-center justify-center rounded-2xl border border-black/10 bg-white px-5 text-sm font-semibold"
-            >
-              Open tracking timeline
-            </Link>
           </aside>
         </div>
       </PageContainer>
