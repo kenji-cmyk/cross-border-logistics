@@ -1,14 +1,18 @@
 :root {
+  --motion-instant: 160ms;
   --motion-fast: 200ms;
   --motion-surface: 240ms;
   --motion-page: 380ms;
   --motion-ease: cubic-bezier(.22, 1, .36, 1);
+  --motion-ease-standard: cubic-bezier(.2, 0, 0, 1);
 }
 
 @keyframes fade-rise { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes page-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes content-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes mobile-menu-enter { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes feedback-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes status-pop { 0% { opacity: .45; transform: scale(.96); } 100% { opacity: 1; transform: scale(1); } }
 @keyframes route-dash { to { stroke-dashoffset: -24; } }
 
 .animate-fade-rise { animation: fade-rise .8s ease-out both; }
@@ -25,20 +29,38 @@
 .motion-nav-link { transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) ease; }
 .motion-icon-button { transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-ease); }
 .motion-footer { transition: border-color var(--motion-surface) ease; }
-.motion-page-enter :where(.shadow-card, .shadow-soft) { transition: transform var(--motion-surface) var(--motion-ease), box-shadow var(--motion-surface) ease, border-color var(--motion-surface) ease; }
+.motion-page-content > :not(.motion-page-header) { animation: content-enter 460ms var(--motion-ease) 100ms both; }
+.motion-page-content > :nth-child(3) { animation-delay: 150ms; }
+.motion-interactive-surface { transition: transform var(--motion-surface) var(--motion-ease), box-shadow var(--motion-surface) ease, border-color var(--motion-surface) ease; }
 .motion-page-enter :where(input, textarea, select) { transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
 .ui-button > svg:not(.animate-spin) { transition: transform var(--motion-fast) var(--motion-ease); }
+.motion-cta, a[class*="bg-ink"], a[class*="border-black"] { transition: transform var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) ease, color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
+.motion-feedback { animation: feedback-enter var(--motion-fast) var(--motion-ease) both; }
+.motion-field.has-error :where(input, textarea) { animation: status-pop var(--motion-surface) var(--motion-ease) both; }
+.motion-reveal { opacity: 0; transform: translateY(18px); transition: opacity 560ms var(--motion-ease), transform 560ms var(--motion-ease); transition-delay: var(--reveal-delay, 0ms); }
+.motion-reveal.is-visible { opacity: 1; transform: translateY(0); }
+:where([aria-live="polite"], [role="alert"]) { transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease; }
+details > :not(summary) { animation: feedback-enter var(--motion-surface) var(--motion-ease) both; }
+summary { transition: color var(--motion-fast) ease; }
+summary:hover { color: #2563eb; }
+.bg-ink .copy-button:not(:hover) { border-color: rgb(255 255 255 / .15); background-color: rgb(255 255 255 / .1); color: white; }
+.bg-ink .copy-button:hover { border-color: rgb(255 255 255 / .25); background-color: rgb(255 255 255 / .2); color: white; }
 
 @media (hover: hover) {
   .motion-nav-link:hover { transform: translateY(-1px); }
   .motion-icon-button:hover { transform: rotate(3deg) scale(1.03); }
-  .motion-page-enter :where(.shadow-card, .shadow-soft):hover { transform: translateY(-2px); }
+  .motion-interactive-surface:hover { transform: translateY(-2px); }
   .ui-button:hover > svg:not(.animate-spin) { transform: translateX(2px); }
+  .motion-cta:hover, a[class*="bg-ink"]:hover, a[class*="border-black"]:hover { transform: translateY(-1px); }
+  a[class*="bg-ink"]:hover { background-color: #1e293b; }
+  a[class*="border-black"]:hover { border-color: rgb(37 99 235 / .25); background-color: #eff6ff; }
 }
+.motion-cta:active, a[class*="bg-ink"]:active, a[class*="border-black"]:active { transform: scale(.98); }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
-  .animate-fade-rise, .animate-fade-rise-delay, .animate-fade-rise-delay-2, .route-motion, .motion-page-enter, .motion-page-header > *, .motion-mobile-menu { animation: none !important; }
-  .motion-nav-link, .motion-icon-button, .motion-page-enter :where(.shadow-card, .shadow-soft), .ui-button, .ui-button > svg { transform: none !important; }
+  .animate-fade-rise, .animate-fade-rise-delay, .animate-fade-rise-delay-2, .route-motion, .motion-page-enter, .motion-page-header > *, .motion-mobile-menu, .motion-page-content > *, .motion-feedback { animation: none !important; }
+  .motion-nav-link, .motion-icon-button, .motion-interactive-surface, .motion-reveal, .ui-button, .ui-button > svg { transform: none !important; }
+  .motion-reveal { opacity: 1 !important; }
 }
