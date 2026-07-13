@@ -12,8 +12,8 @@ func TestCanTransition(t *testing.T) {
 		want     bool
 	}{
 		{domain.StatusPending, domain.StatusSucceeded, true},
-		{domain.StatusPending, domain.StatusFailed, false},
-		{domain.StatusPending, domain.StatusCancelled, false},
+		{domain.StatusPending, domain.StatusFailed, true},
+		{domain.StatusPending, domain.StatusCancelled, true},
 		{domain.StatusSucceeded, domain.StatusRefunded, false},
 		{domain.StatusSucceeded, domain.StatusPending, false},
 		{domain.StatusSucceeded, domain.StatusSucceeded, false},

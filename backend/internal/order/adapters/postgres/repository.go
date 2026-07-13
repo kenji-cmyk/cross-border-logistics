@@ -66,6 +66,88 @@ func (r *Repository) ProcessPaymentSucceeded(ctx context.Context, input ports.Pr
 	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusWaitingPurchase, input.AmountVND)
 }
 
+func (r *Repository) ProcessRemainingSucceeded(ctx context.Context, in ports.ProcessPaymentSucceeded) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM processed_events WHERE event_id=$1)`, in.EventID).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists {
+		return false, tx.Commit(ctx)
+	}
+	var expected int64
+	var status domain.OrderStatus
+	if err = tx.QueryRow(ctx, `SELECT remaining_amount_vnd,status FROM orders WHERE id=$1 FOR UPDATE`, in.OrderID).Scan(&expected, &status); err != nil {
+		return false, err
+	}
+	if expected != in.AmountVND || status == domain.StatusCancelled || status == domain.StatusDelivered {
+		return false, domain.ErrInvalidTransition
+	}
+	_, err = tx.Exec(ctx, `UPDATE orders SET remaining_paid_at=$1,updated_at=$1 WHERE id=$2`, in.ProcessedAt, in.OrderID)
+	if err == nil {
+		_, err = tx.Exec(ctx, `INSERT INTO processed_events(event_id,event_type,processed_at) VALUES($1,$2,$3)`, in.EventID, in.EventType, in.ProcessedAt)
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
+func (r *Repository) ProcessRefundSucceeded(ctx context.Context, in ports.ProcessPaymentSucceeded) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM processed_events WHERE event_id=$1)`, in.EventID).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists {
+		return false, tx.Commit(ctx)
+	}
+	var deposit, remaining, refunded int64
+	var remainingPaidAt *time.Time
+	var status domain.OrderStatus
+	if err = tx.QueryRow(ctx, `SELECT deposit_amount_vnd,remaining_amount_vnd,refunded_amount_vnd,remaining_paid_at,status FROM orders WHERE id=$1 FOR UPDATE`, in.OrderID).Scan(&deposit, &remaining, &refunded, &remainingPaidAt, &status); err != nil {
+		return false, err
+	}
+	if status == domain.StatusPurchased || status == domain.StatusDelivered || status == domain.StatusCancelled {
+		return false, domain.ErrInvalidTransition
+	}
+	refunded += in.AmountVND
+	paid := deposit
+	if remainingPaidAt != nil {
+		paid += remaining
+	}
+	if refunded > paid {
+		return false, domain.ErrInvalidInput
+	}
+	cancel := refunded == paid
+	if cancel {
+		if _, err = tx.Exec(ctx, `UPDATE orders SET refunded_amount_vnd=$1,status=$2,updated_at=$3 WHERE id=$4`, refunded, domain.StatusCancelled, in.ProcessedAt, in.OrderID); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO tracking_events(id,order_id,status,description,source,occurred_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, in.Tracking.ID, in.OrderID, in.Tracking.Status, in.Tracking.Description, in.Tracking.Source, in.Tracking.OccurredAt, in.Tracking.CreatedAt); err != nil {
+			return false, err
+		}
+	} else {
+		_, err = tx.Exec(ctx, `UPDATE orders SET refunded_amount_vnd=$1,updated_at=$2 WHERE id=$3`, refunded, in.ProcessedAt, in.OrderID)
+		if err != nil {
+			return false, err
+		}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO processed_events(event_id,event_type,processed_at) VALUES($1,$2,$3)`, in.EventID, in.EventType, in.ProcessedAt)
+	if err != nil {
+		return false, err
+	}
+	return cancel, tx.Commit(ctx)
+}
+
 func (r *Repository) ProcessPackageReceived(ctx context.Context, input ports.ProcessPackageReceived) (bool, error) {
 	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusArrivedForeignWarehouse, 0)
 }
@@ -134,7 +216,7 @@ func (r *Repository) Create(ctx context.Context, order domain.Order, tracking do
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("check idempotent order: %w", err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO orders (id,customer_id,quotation_id,delivery_address,total_amount_vnd,deposit_amount_vnd,remaining_amount_vnd,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, order.ID, order.CustomerID, order.QuotationID, order.DeliveryAddress, order.TotalAmountVND, order.DepositAmountVND, order.RemainingAmountVND, order.Status, order.CreatedAt, order.UpdatedAt)
+	_, err = tx.Exec(ctx, `INSERT INTO orders (id,customer_id,quotation_id,delivery_address,total_amount_vnd,deposit_amount_vnd,remaining_amount_vnd,status,owner_token_hash,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, order.ID, order.CustomerID, order.QuotationID, order.DeliveryAddress, order.TotalAmountVND, order.DepositAmountVND, order.RemainingAmountVND, order.Status, order.OwnerTokenHash, order.CreatedAt, order.UpdatedAt)
 	if err != nil {
 		var pgError *pgconn.PgError
 		if errors.As(err, &pgError) && pgError.Code == "23505" && pgError.ConstraintName == "orders_quotation_id_key" {
@@ -161,7 +243,7 @@ func (r *Repository) Create(ctx context.Context, order domain.Order, tracking do
 
 func (r *Repository) FindByID(ctx context.Context, id string) (domain.Order, error) {
 	var order domain.Order
-	err := r.pool.QueryRow(ctx, `SELECT id::text,customer_id,quotation_id::text,delivery_address,total_amount_vnd,deposit_amount_vnd,remaining_amount_vnd,status,created_at,updated_at FROM orders WHERE id=$1`, id).Scan(&order.ID, &order.CustomerID, &order.QuotationID, &order.DeliveryAddress, &order.TotalAmountVND, &order.DepositAmountVND, &order.RemainingAmountVND, &order.Status, &order.CreatedAt, &order.UpdatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT id::text,customer_id,quotation_id::text,delivery_address,total_amount_vnd,deposit_amount_vnd,remaining_amount_vnd,status,COALESCE(owner_token_hash,''),remaining_paid_at,created_at,updated_at FROM orders WHERE id=$1`, id).Scan(&order.ID, &order.CustomerID, &order.QuotationID, &order.DeliveryAddress, &order.TotalAmountVND, &order.DepositAmountVND, &order.RemainingAmountVND, &order.Status, &order.OwnerTokenHash, &order.RemainingPaidAt, &order.CreatedAt, &order.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Order{}, domain.ErrOrderNotFound
 	}

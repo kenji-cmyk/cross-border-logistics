@@ -42,6 +42,12 @@ type OrderRepository interface {
 	ProcessPaymentSucceeded(context.Context, ProcessPaymentSucceeded) (bool, error)
 	ProcessPackageReceived(context.Context, ProcessPackageReceived) (bool, error)
 }
+type RemainingPaymentRepository interface {
+	ProcessRemainingSucceeded(context.Context, ProcessPaymentSucceeded) (bool, error)
+}
+type RefundPaymentRepository interface {
+	ProcessRefundSucceeded(context.Context, ProcessPaymentSucceeded) (bool, error)
+}
 
 type ProcessPackageReceived struct {
 	EventID, EventType, OrderID string

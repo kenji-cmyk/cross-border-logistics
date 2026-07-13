@@ -14,3 +14,5 @@ export const rememberOrder = (id: string) => localStorage.setItem(RECENT_ORDER_K
 export const rememberQuotation = (id: string) => localStorage.setItem(RECENT_QUOTE_KEY, id);
 export const recentOrder = () => localStorage.getItem(RECENT_ORDER_KEY);
 export const recentQuotation = () => localStorage.getItem(RECENT_QUOTE_KEY);
+export const rememberOrderToken=(id:string,token:string)=>sessionStorage.setItem(`crossborder.orderToken.${id}`,token);
+export const orderToken=(id:string)=>sessionStorage.getItem(`crossborder.orderToken.${id}`);

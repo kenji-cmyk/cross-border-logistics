@@ -13,6 +13,8 @@ import (
 
 type Handler interface {
 	HandlePaymentDepositSucceeded(context.Context, sharedevent.Envelope) (bool, error)
+	HandlePaymentRemainingSucceeded(context.Context, sharedevent.Envelope) (bool, error)
+	HandlePaymentRefundSucceeded(context.Context, sharedevent.Envelope) (bool, error)
 }
 
 type Consumer struct {
@@ -25,7 +27,7 @@ func NewConsumer(brokers []string, group string, handler Handler, logger *slog.L
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(group),
-		kgo.ConsumeTopics(sharedevent.PaymentDepositSucceeded),
+		kgo.ConsumeTopics(sharedevent.PaymentDepositSucceeded, sharedevent.PaymentRemainingSucceeded, sharedevent.PaymentRefundSucceeded),
 		kgo.DisableAutoCommit(),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 	)
@@ -69,7 +71,18 @@ func (c *Consumer) processUntilSuccess(ctx context.Context, record *kgo.Record) 
 			c.logger.ErrorContext(ctx, "invalid Kafka event envelope", "topic", record.Topic, "partition", record.Partition, "offset", record.Offset, "error", err)
 			return true
 		}
-		changed, err := c.handler.HandlePaymentDepositSucceeded(ctx, envelope)
+		var changed bool
+		var err error
+		switch envelope.EventType {
+		case sharedevent.PaymentDepositSucceeded:
+			changed, err = c.handler.HandlePaymentDepositSucceeded(ctx, envelope)
+		case sharedevent.PaymentRemainingSucceeded:
+			changed, err = c.handler.HandlePaymentRemainingSucceeded(ctx, envelope)
+		case sharedevent.PaymentRefundSucceeded:
+			changed, err = c.handler.HandlePaymentRefundSucceeded(ctx, envelope)
+		default:
+			return true
+		}
 		if err == nil {
 			c.logger.InfoContext(ctx, "payment event processed", "event_id", envelope.EventID, "order_id", envelope.AggregateID, "changed", changed)
 			return true

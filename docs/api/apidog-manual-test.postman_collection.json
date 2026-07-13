@@ -11,6 +11,8 @@
     { "key": "quotationId", "value": "", "type": "string" },
     { "key": "orderId", "value": "", "type": "string" },
     { "key": "paymentId", "value": "", "type": "string" },
+    { "key": "remainingPaymentId", "value": "", "type": "string" },
+    { "key": "orderToken", "value": "", "type": "string" },
     { "key": "packageId", "value": "", "type": "string" },
     { "key": "adminUsdRate", "value": "", "type": "string" },
     { "key": "adminRatesEffectiveAt", "value": "", "type": "string" },
@@ -150,7 +152,8 @@
               "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
               "const json = pm.response.json();",
               "pm.test('Order waits for deposit', () => pm.expect(json.data.status).to.eql('WAITING_DEPOSIT'));",
-              "pm.collectionVariables.set('orderId', json.data.orderId);"
+              "pm.collectionVariables.set('orderId', json.data.orderId);",
+              "if (json.data.ownerToken) pm.collectionVariables.set('orderToken', json.data.ownerToken);"
             ] }
           }]
         },
@@ -429,6 +432,24 @@
               "pm.test('Correct error code', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_WEBHOOK_SIGNATURE'));"
             ] }
           }]
+        }
+      ]
+    },
+    {
+      "name": "06 - Real payment extensions",
+      "item": [
+        {
+          "name": "Create remaining balance payment",
+          "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\n  \"orderId\": \"{{orderId}}\"\n}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/v1/payments/remaining","host":["{{baseUrl}}"],"path":["api","v1","payments","remaining"]}},
+          "event":[{"listen":"test","script":{"type":"text/javascript","exec":["if (pm.response.code === 201) pm.collectionVariables.set('remainingPaymentId', pm.response.json().data.paymentId);"]}}]
+        },
+        {
+          "name": "Get Order financial summary",
+          "request": {"method":"GET","header":[],"url":{"raw":"{{baseUrl}}/api/v1/orders/{{orderId}}/payments","host":["{{baseUrl}}"],"path":["api","v1","orders","{{orderId}}","payments"]}}
+        },
+        {
+          "name": "Refund all successful payments",
+          "request": {"method":"POST","header":[{"key":"Content-Type","value":"application/json"},{"key":"X-Order-Token","value":"{{orderToken}}"}],"body":{"mode":"raw","raw":"{}","options":{"raw":{"language":"json"}}},"url":{"raw":"{{baseUrl}}/api/v1/orders/{{orderId}}/refunds","host":["{{baseUrl}}"],"path":["api","v1","orders","{{orderId}}","refunds"]}}
         }
       ]
     }

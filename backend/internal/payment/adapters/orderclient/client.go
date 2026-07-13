@@ -19,6 +19,26 @@ type Client struct {
 	client  *http.Client
 }
 
+func (c *Client) AuthorizeRefund(ctx context.Context, orderID, token string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/internal/orders/"+url.PathEscape(orderID)+"/refund-authorize", nil)
+	if err != nil {
+		return domain.ErrDependency
+	}
+	req.Header.Set("X-Order-Token", token)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return domain.ErrDependency
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusConflict {
+		return domain.ErrInvalidState
+	}
+	return domain.ErrDependency
+}
+
 type successResponse struct {
 	Data struct {
 		OrderID            string `json:"orderId"`

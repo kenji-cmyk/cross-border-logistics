@@ -34,3 +34,33 @@ CREATE TABLE IF NOT EXISTS provider_callbacks (
     payment_id UUID NOT NULL,
     received_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'mock';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_request_id TEXT;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_transaction_id TEXT;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS result_code INTEGER;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS result_message TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS succeeded_at TIMESTAMPTZ;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS failed_at TIMESTAMPTZ;
+UPDATE payments SET provider_request_id=id::text WHERE provider_request_id IS NULL;
+ALTER TABLE payments ALTER COLUMN provider_request_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS payments_provider_request_id_idx ON payments(provider_request_id);
+CREATE UNIQUE INDEX IF NOT EXISTS payments_one_type_per_order_idx ON payments(order_id,type) WHERE type IN ('DEPOSIT','REMAINING_BALANCE');
+
+CREATE TABLE IF NOT EXISTS refunds (
+    id UUID PRIMARY KEY,
+    payment_id UUID NOT NULL REFERENCES payments(id),
+    order_id UUID NOT NULL,
+    amount_vnd BIGINT NOT NULL CHECK (amount_vnd > 0),
+    status VARCHAR(24) NOT NULL,
+    provider TEXT NOT NULL,
+    provider_request_id TEXT NOT NULL UNIQUE,
+    provider_transaction_id TEXT,
+    result_code INTEGER,
+    result_message TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    succeeded_at TIMESTAMPTZ,
+    failed_at TIMESTAMPTZ,
+    UNIQUE(payment_id)
+);

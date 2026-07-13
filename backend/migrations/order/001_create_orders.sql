@@ -54,3 +54,6 @@ CREATE TABLE IF NOT EXISTS processed_events (
     event_type VARCHAR(100) NOT NULL,
     processed_at TIMESTAMPTZ NOT NULL
 );
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS owner_token_hash TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS remaining_paid_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refunded_amount_vnd BIGINT NOT NULL DEFAULT 0;

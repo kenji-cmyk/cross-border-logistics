@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	OrderCreated            = "order.created.v1"
-	PaymentDepositSucceeded = "payment.deposit_succeeded.v1"
-	OrderStatusChanged      = "order.status_changed.v1"
-	PackageReceived         = "package.received.v1"
+	OrderCreated              = "order.created.v1"
+	PaymentDepositSucceeded   = "payment.deposit_succeeded.v1"
+	PaymentRemainingSucceeded = "payment.remaining_balance_succeeded.v1"
+	PaymentRefundSucceeded    = "payment.refund_succeeded.v1"
+	OrderStatusChanged        = "order.status_changed.v1"
+	PackageReceived           = "package.received.v1"
 )
 
 type Envelope struct {
@@ -22,6 +24,13 @@ type Envelope struct {
 	Producer    string          `json:"producer"`
 	OccurredAt  time.Time       `json:"occurredAt"`
 	Data        json.RawMessage `json:"data"`
+}
+type PaymentRefundSucceededData struct {
+	RefundID         uuid.UUID `json:"refundId"`
+	PaymentID        uuid.UUID `json:"paymentId"`
+	OrderID          uuid.UUID `json:"orderId"`
+	AmountVND        int64     `json:"amountVnd"`
+	TotalRefundedVND int64     `json:"totalRefundedVnd"`
 }
 
 func New(eventType string, aggregateID uuid.UUID, producer string, occurredAt time.Time, data any) (Envelope, error) {

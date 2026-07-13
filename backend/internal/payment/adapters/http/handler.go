@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example/cross-border-logistics/internal/payment/adapters/momo"
 	"github.com/example/cross-border-logistics/internal/payment/application"
 	"github.com/example/cross-border-logistics/internal/payment/domain"
 	"github.com/example/cross-border-logistics/pkg/httpx"
@@ -34,6 +35,9 @@ type Handler struct {
 	logger        *slog.Logger
 	webhookSecret string
 	demo          bool
+	momo          interface {
+		VerifyIPN([]byte) (momo.IPN, error)
+	}
 }
 
 type createDepositRequest struct {
@@ -56,10 +60,120 @@ func New(service Service, logger *slog.Logger, serviceName string, options ...st
 	mux.HandleFunc("POST /api/v1/payments/deposit", h.createDeposit)
 	mux.HandleFunc("POST /api/v1/payments/callback", h.callback)
 	mux.HandleFunc("GET /api/v1/payments/{paymentId}", h.get)
+	mux.HandleFunc("GET /api/v1/orders/{orderId}/payments", h.financial)
+	mux.HandleFunc("POST /api/v1/orders/{orderId}/refunds", h.refundAll)
 	if h.demo {
 		mux.HandleFunc("POST /api/v1/payments/{paymentId}/mock-success", h.mockSuccess)
 	}
 	return mux
+}
+
+func NewMoMo(service Service, verifier interface {
+	VerifyIPN([]byte) (momo.IPN, error)
+}, logger *slog.Logger, serviceName, env string) http.Handler {
+	h := &Handler{service: service, logger: logger, demo: false, momo: verifier}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		httpx.WriteJSON(w, 200, httpx.Health{Status: "UP", Service: serviceName})
+	})
+	mux.HandleFunc("POST /api/v1/payments/deposit", h.createDeposit)
+	mux.HandleFunc("POST /api/v1/payments/remaining", h.createRemaining)
+	mux.HandleFunc("POST /api/v1/payments/momo/ipn", h.momoIPN)
+	mux.HandleFunc("GET /api/v1/payments/{paymentId}", h.get)
+	mux.HandleFunc("GET /api/v1/orders/{orderId}/payments", h.financial)
+	mux.HandleFunc("POST /api/v1/orders/{orderId}/refunds", h.refundAll)
+	return mux
+}
+
+type extendedService interface {
+	Get(context.Context, string) (domain.Payment, error)
+	CreateRemaining(context.Context, application.CreateDepositInput) (domain.Payment, error)
+	ApplyProviderResult(context.Context, string, string, string, int, string) (domain.Payment, error)
+	Financial(context.Context, string, string) (application.FinancialSummary, error)
+	RefundAll(context.Context, string, string) (application.FinancialSummary, error)
+}
+
+func (h *Handler) financial(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.service.(extendedService)
+	if !ok {
+		httpx.WriteError(w, r, 503, "PAYMENT_UNAVAILABLE", "financial summary unavailable", nil)
+		return
+	}
+	x, err := s.Financial(r.Context(), r.PathValue("orderId"), r.Header.Get("X-Order-Token"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httpx.WriteSuccess(w, r, 200, x)
+}
+func (h *Handler) refundAll(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.service.(extendedService)
+	if !ok {
+		httpx.WriteError(w, r, 503, "PAYMENT_UNAVAILABLE", "refund unavailable", nil)
+		return
+	}
+	x, err := s.RefundAll(r.Context(), r.PathValue("orderId"), r.Header.Get("X-Order-Token"))
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httpx.WriteSuccess(w, r, 202, x)
+}
+
+func (h *Handler) createRemaining(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	var req createDepositRequest
+	if decoder.Decode(&req) != nil {
+		httpx.WriteError(w, r, 400, "VALIDATION_ERROR", "request body must be valid JSON", nil)
+		return
+	}
+	s, ok := h.service.(extendedService)
+	if !ok {
+		httpx.WriteError(w, r, 503, "PAYMENT_UNAVAILABLE", "remaining payment unavailable", nil)
+		return
+	}
+	p, err := s.CreateRemaining(r.Context(), application.CreateDepositInput{OrderID: req.OrderID})
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	httpx.WriteSuccess(w, r, 201, p)
+}
+func (h *Handler) momoIPN(w http.ResponseWriter, r *http.Request) {
+	if h.momo == nil {
+		http.NotFound(w, r)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+	if err != nil || len(body) > 1<<20 {
+		httpx.WriteError(w, r, 400, "VALIDATION_ERROR", "invalid IPN body", nil)
+		return
+	}
+	ipn, err := h.momo.VerifyIPN(body)
+	if err != nil {
+		httpx.WriteError(w, r, 401, "INVALID_MOMO_SIGNATURE", "invalid MoMo signature", nil)
+		return
+	}
+	s, ok := h.service.(extendedService)
+	if !ok {
+		httpx.WriteError(w, r, 503, "PAYMENT_UNAVAILABLE", "IPN unavailable", nil)
+		return
+	}
+	p, err := s.Get(r.Context(), ipn.OrderID)
+	if err != nil || p.AmountVND != ipn.Amount || p.ProviderRequestID != ipn.RequestID {
+		httpx.WriteError(w, r, 400, "INVALID_MOMO_CONTRACT", "MoMo transaction does not match", nil)
+		return
+	}
+	if ipn.ResultCode == 9000 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, err = s.ApplyProviderResult(r.Context(), ipn.OrderID, ipn.RequestID, strconv.FormatInt(ipn.TransID, 10), ipn.ResultCode, ipn.Message); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {

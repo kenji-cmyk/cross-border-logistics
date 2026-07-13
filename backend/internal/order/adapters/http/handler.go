@@ -20,6 +20,9 @@ type Service interface {
 	GetPaymentSummary(context.Context, string) (application.PaymentSummary, error)
 	GetWarehouseSummary(context.Context, string) (application.WarehouseSummary, error)
 }
+type refundAuthorizer interface {
+	AuthorizeRefund(context.Context, string, string) error
+}
 
 type Handler struct {
 	service Service
@@ -43,7 +46,20 @@ func New(service Service, logger *slog.Logger, serviceName string) http.Handler 
 	mux.HandleFunc("GET /api/v1/orders/{orderId}/timeline", h.timeline)
 	mux.HandleFunc("GET /internal/orders/{orderId}/payment-summary", h.paymentSummary)
 	mux.HandleFunc("GET /internal/orders/{orderId}/warehouse-summary", h.warehouseSummary)
+	mux.HandleFunc("POST /internal/orders/{orderId}/refund-authorize", h.refundAuthorize)
 	return mux
+}
+func (h *Handler) refundAuthorize(w http.ResponseWriter, r *http.Request) {
+	s, ok := h.service.(refundAuthorizer)
+	if !ok {
+		httpx.WriteError(w, r, 503, "UNAVAILABLE", "authorization unavailable", nil)
+		return
+	}
+	if err := s.AuthorizeRefund(r.Context(), r.PathValue("orderId"), r.Header.Get("X-Order-Token")); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) warehouseSummary(w http.ResponseWriter, r *http.Request) {

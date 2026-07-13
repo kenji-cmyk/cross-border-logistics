@@ -2,6 +2,10 @@ package application
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"time"
@@ -102,6 +106,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Order, 
 			ProductURL: quotation.ProductURL, Quantity: quotation.Quantity,
 			UnitPriceVND: quotation.TotalAmountVND / int64(quotation.Quantity), TotalPriceVND: quotation.TotalAmountVND, CreatedAt: now}},
 	}
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return domain.Order{}, err
+	}
+	order.OwnerToken = base64.RawURLEncoding.EncodeToString(tokenBytes)
+	sum := sha256.Sum256([]byte(order.OwnerToken))
+	order.OwnerTokenHash = hex.EncodeToString(sum[:])
 	tracking := domain.TrackingEvent{ID: uuid.NewString(), OrderID: orderID, Status: order.Status,
 		Description: domain.InitialTrackingDescription, Source: "order-service", OccurredAt: now, CreatedAt: now}
 	outbox, err := makeOrderCreatedEvent(order, now)
@@ -112,6 +123,21 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Order, 
 		return domain.Order{}, err
 	}
 	return order, nil
+}
+
+func (s *Service) AuthorizeRefund(ctx context.Context, id, token string) error {
+	order, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(token)))
+	if token == "" || order.OwnerTokenHash == "" || hex.EncodeToString(sum[:]) != order.OwnerTokenHash {
+		return domain.ErrInvalidInput
+	}
+	if order.Status != domain.StatusWaitingDeposit && order.Status != domain.StatusWaitingPurchase {
+		return domain.ErrInvalidTransition
+	}
+	return nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (domain.Order, error) {
@@ -192,6 +218,36 @@ func (s *Service) HandlePaymentDepositSucceeded(ctx context.Context, envelope sh
 		AmountVND: data.AmountVND,
 		Outbox:    ports.OutboxEvent{ID: statusEvent.EventID.String(), AggregateID: data.OrderID.String(), EventType: statusEvent.EventType, Payload: payload, CreatedAt: now},
 	})
+}
+func (s *Service) HandlePaymentRemainingSucceeded(ctx context.Context, e sharedevent.Envelope) (bool, error) {
+	if e.EventType != sharedevent.PaymentRemainingSucceeded || e.Producer != "payment-service" {
+		return false, domain.ErrInvalidInput
+	}
+	var d sharedevent.PaymentDepositSucceededData
+	if json.Unmarshal(e.Data, &d) != nil || d.OrderID != e.AggregateID || d.AmountVND <= 0 {
+		return false, domain.ErrInvalidInput
+	}
+	repo, ok := s.repository.(ports.RemainingPaymentRepository)
+	if !ok {
+		return false, domain.ErrDependency
+	}
+	return repo.ProcessRemainingSucceeded(ctx, ports.ProcessPaymentSucceeded{EventID: e.EventID.String(), EventType: e.EventType, OrderID: d.OrderID.String(), AmountVND: d.AmountVND, ProcessedAt: s.now().UTC()})
+}
+func (s *Service) HandlePaymentRefundSucceeded(ctx context.Context, e sharedevent.Envelope) (bool, error) {
+	if e.EventType != sharedevent.PaymentRefundSucceeded || e.Producer != "payment-service" {
+		return false, domain.ErrInvalidInput
+	}
+	var d sharedevent.PaymentRefundSucceededData
+	if json.Unmarshal(e.Data, &d) != nil || d.OrderID != e.AggregateID || d.AmountVND <= 0 {
+		return false, domain.ErrInvalidInput
+	}
+	now := s.now().UTC()
+	tracking := domain.TrackingEvent{ID: uuid.NewString(), OrderID: d.OrderID.String(), Status: domain.StatusCancelled, Description: "Payment fully refunded; order cancelled", Source: "payment-service", OccurredAt: now, CreatedAt: now}
+	repo, ok := s.repository.(ports.RefundPaymentRepository)
+	if !ok {
+		return false, domain.ErrDependency
+	}
+	return repo.ProcessRefundSucceeded(ctx, ports.ProcessPaymentSucceeded{EventID: e.EventID.String(), EventType: e.EventType, OrderID: d.OrderID.String(), AmountVND: d.AmountVND, ProcessedAt: now, Tracking: tracking})
 }
 
 func makeOrderCreatedEvent(order domain.Order, now time.Time) (ports.OutboxEvent, error) {

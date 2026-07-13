@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,9 +13,11 @@ import (
 
 	paymentadapters "github.com/example/cross-border-logistics/internal/payment/adapters"
 	paymenthttp "github.com/example/cross-border-logistics/internal/payment/adapters/http"
+	"github.com/example/cross-border-logistics/internal/payment/adapters/momo"
 	"github.com/example/cross-border-logistics/internal/payment/adapters/orderclient"
 	paymentpostgres "github.com/example/cross-border-logistics/internal/payment/adapters/postgres"
 	"github.com/example/cross-border-logistics/internal/payment/application"
+	"github.com/example/cross-border-logistics/internal/payment/ports"
 	"github.com/example/cross-border-logistics/pkg/config"
 	"github.com/example/cross-border-logistics/pkg/httpx"
 	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
@@ -53,16 +56,38 @@ func main() {
 		return
 	}
 	orderReader := orderclient.New(cfg.OrderServiceURL, cfg.HTTPClientTimeout)
-	webhookSecret := strings.TrimSpace(os.Getenv("PAYMENT_WEBHOOK_SECRET"))
-	if strings.EqualFold(cfg.AppEnv, "production") && webhookSecret == "" {
-		log.Fatal("PAYMENT_WEBHOOK_SECRET is required in production")
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("PAYMENT_PROVIDER")))
+	if provider == "" {
+		provider = "mock"
 	}
-	service := application.NewService(repository, orderReader, paymentadapters.MockHostedGateway{})
-	handler := paymenthttp.New(service, serviceLogger, cfg.ServiceName, webhookSecret, cfg.AppEnv)
+	var gateway ports.PaymentGateway
+	var handler http.Handler
+	var service *application.Service
+	if provider == "momo" {
+		client, e := momo.New(momo.Config{PartnerCode: os.Getenv("MOMO_PARTNER_CODE"), AccessKey: os.Getenv("MOMO_ACCESS_KEY"), SecretKey: os.Getenv("MOMO_SECRET_KEY"), BaseURL: os.Getenv("MOMO_API_BASE_URL"), IPNURL: os.Getenv("MOMO_IPN_URL"), RedirectURL: os.Getenv("MOMO_REDIRECT_URL"), Timeout: cfg.HTTPClientTimeout})
+		if e != nil {
+			log.Fatal(e)
+		}
+		gateway = client
+		service = application.NewService(repository, orderReader, gateway)
+		handler = paymenthttp.NewMoMo(service, client, serviceLogger, cfg.ServiceName, cfg.AppEnv)
+	} else {
+		webhookSecret := strings.TrimSpace(os.Getenv("PAYMENT_WEBHOOK_SECRET"))
+		if strings.EqualFold(cfg.AppEnv, "production") && webhookSecret == "" {
+			log.Fatal("PAYMENT_WEBHOOK_SECRET is required for mock provider in production")
+		}
+		gateway = paymentadapters.MockHostedGateway{}
+		service = application.NewService(repository, orderReader, gateway)
+		handler = paymenthttp.New(service, serviceLogger, cfg.ServiceName, webhookSecret, cfg.AppEnv)
+	}
 	worker := sharedkafka.NewOutboxWorker(repository, producer, cfg.OutboxPollInterval, serviceLogger)
 	var workers sync.WaitGroup
 	workers.Add(1)
 	go func() { defer workers.Done(); worker.Run(ctx) }()
+	if provider == "momo" {
+		workers.Add(1)
+		go func() { defer workers.Done(); service.RunReconciliation(ctx, 15*time.Second) }()
+	}
 	if err := httpx.RunContext(ctx, serviceLogger, cfg.Port, handler); err != nil {
 		serviceLogger.Error("service stopped with error", "error", err)
 	}

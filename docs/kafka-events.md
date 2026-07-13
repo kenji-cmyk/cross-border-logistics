@@ -8,6 +8,8 @@ Every record value is JSON with `eventId`, `eventType`, `aggregateId`, `producer
 |---|---|---|---|---|
 | `order.created.v1` | Order | None in template | Order ID | Order creation snapshot |
 | `payment.deposit_succeeded.v1` | Payment | Order group `order-service-payment-events` | Order ID | `paymentId`, `orderId`, `amountVnd`, `currency` |
+| `payment.remaining_balance_succeeded.v1` | Payment | Order group `order-service-payment-events` | Order ID | `paymentId`, `orderId`, `amountVnd`, `currency` |
+| `payment.refund_succeeded.v1` | Payment | Order group `order-service-payment-events` | Order ID | `refundId`, `paymentId`, `orderId`, `amountVnd`, `totalRefundedVnd` |
 | `order.status_changed.v1` | Order | Notification group `notification-service-status-events` | Order ID | `orderId`, `previousStatus`, `currentStatus`, `description` |
 | `package.received.v1` | Warehouse | Order group `order-service-warehouse-events` | Order ID | `packageId`, `orderId`, tracking/warehouse codes and dimensions |
 

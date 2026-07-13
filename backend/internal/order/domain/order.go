@@ -48,6 +48,9 @@ type Order struct {
 	Status             OrderStatus `json:"status"`
 	CreatedAt          time.Time   `json:"createdAt"`
 	UpdatedAt          time.Time   `json:"updatedAt"`
+	OwnerToken         string      `json:"ownerToken,omitempty"`
+	OwnerTokenHash     string      `json:"-"`
+	RemainingPaidAt    *time.Time  `json:"remainingPaidAt,omitempty"`
 	Items              []OrderItem `json:"items"`
 }
 

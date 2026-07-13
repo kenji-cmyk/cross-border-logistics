@@ -63,7 +63,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func (r *Repository) Create(ctx context.Context, payment domain.Payment) error {
-	_, err := r.pool.Exec(ctx, `INSERT INTO payments (id,order_id,type,amount_vnd,currency,status,payment_url,provider_reference,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, payment.ID, payment.OrderID, payment.Type, payment.AmountVND, payment.Currency, payment.Status, payment.PaymentURL, payment.ProviderReference, payment.CreatedAt, payment.UpdatedAt)
+	if payment.Provider == "" {
+		payment.Provider = "mock"
+	}
+	if payment.ProviderRequestID == "" {
+		payment.ProviderRequestID = payment.ID
+	}
+	_, err := r.pool.Exec(ctx, `INSERT INTO payments (id,order_id,type,amount_vnd,currency,status,payment_url,provider_reference,provider,provider_request_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, payment.ID, payment.OrderID, payment.Type, payment.AmountVND, payment.Currency, payment.Status, payment.PaymentURL, payment.ProviderReference, payment.Provider, payment.ProviderRequestID, payment.CreatedAt, payment.UpdatedAt)
 	if err != nil {
 		var pgError *pgconn.PgError
 		if errors.As(err, &pgError) && pgError.Code == "23505" && pgError.ConstraintName == "payments_one_deposit_per_order_idx" {
@@ -72,6 +78,166 @@ func (r *Repository) Create(ctx context.Context, payment domain.Payment) error {
 		return fmt.Errorf("create payment: %w", err)
 	}
 	return nil
+}
+
+func (r *Repository) FindByOrderAndType(ctx context.Context, orderID string, t domain.PaymentType) (domain.Payment, error) {
+	return findByTwo(ctx, r.pool, orderID, t)
+}
+func findByTwo(ctx context.Context, q rowQuerier, orderID string, t domain.PaymentType) (domain.Payment, error) {
+	var p domain.Payment
+	err := q.QueryRow(ctx, `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,provider,provider_request_id,COALESCE(provider_transaction_id,''),result_code,result_message,succeeded_at,failed_at,created_at,updated_at FROM payments WHERE order_id=$1 AND type=$2`, orderID, t).Scan(&p.ID, &p.OrderID, &p.Type, &p.AmountVND, &p.Currency, &p.Status, &p.PaymentURL, &p.ProviderReference, &p.Provider, &p.ProviderRequestID, &p.ProviderTransID, &p.ResultCode, &p.ResultMessage, &p.SucceededAt, &p.FailedAt, &p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, domain.ErrPaymentNotFound
+	}
+	return p, err
+}
+
+func (r *Repository) ListByOrder(ctx context.Context, orderID string) ([]domain.Payment, []domain.Refund, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,provider,provider_request_id,COALESCE(provider_transaction_id,''),result_code,result_message,succeeded_at,failed_at,created_at,updated_at FROM payments WHERE order_id=$1 ORDER BY created_at`, orderID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var ps []domain.Payment
+	for rows.Next() {
+		var p domain.Payment
+		if err = rows.Scan(&p.ID, &p.OrderID, &p.Type, &p.AmountVND, &p.Currency, &p.Status, &p.PaymentURL, &p.ProviderReference, &p.Provider, &p.ProviderRequestID, &p.ProviderTransID, &p.ResultCode, &p.ResultMessage, &p.SucceededAt, &p.FailedAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, nil, err
+		}
+		ps = append(ps, p)
+	}
+	rr, err := r.pool.Query(ctx, `SELECT id::text,payment_id::text,order_id::text,amount_vnd,status,provider,provider_request_id,COALESCE(provider_transaction_id,''),result_code,result_message,created_at,updated_at,succeeded_at,failed_at FROM refunds WHERE order_id=$1 ORDER BY created_at`, orderID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rr.Close()
+	var rs []domain.Refund
+	for rr.Next() {
+		var x domain.Refund
+		if err = rr.Scan(&x.ID, &x.PaymentID, &x.OrderID, &x.AmountVND, &x.Status, &x.Provider, &x.ProviderRequestID, &x.ProviderTransID, &x.ResultCode, &x.ResultMessage, &x.CreatedAt, &x.UpdatedAt, &x.SucceededAt, &x.FailedAt); err != nil {
+			return nil, nil, err
+		}
+		rs = append(rs, x)
+	}
+	return ps, rs, nil
+}
+
+func (r *Repository) CompleteProviderResult(ctx context.Context, id, transID string, code int, message string, success bool, outbox ports.OutboxEvent) (domain.Payment, bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Payment{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	p, err := findByID(ctx, tx, id, true)
+	if err != nil {
+		return p, false, err
+	}
+	if p.Status != domain.StatusPending {
+		return p, false, tx.Commit(ctx)
+	}
+	status := domain.StatusFailed
+	if success {
+		status = domain.StatusSucceeded
+	}
+	now := time.Now().UTC()
+	_, err = tx.Exec(ctx, `UPDATE payments SET status=$1,provider_transaction_id=$2,result_code=$3,result_message=$4,succeeded_at=CASE WHEN $5 THEN $6 END,failed_at=CASE WHEN NOT $5 THEN $6 END,updated_at=$6 WHERE id=$7`, status, transID, code, message, success, now, id)
+	if err != nil {
+		return p, false, err
+	}
+	if success {
+		if _, err = tx.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_id,event_type,payload,created_at) VALUES($1,$2,$3,$4,$5)`, outbox.ID, outbox.AggregateID, outbox.EventType, outbox.Payload, outbox.CreatedAt); err != nil {
+			return p, false, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return p, false, err
+	}
+	p.Status = status
+	p.ProviderTransID = transID
+	p.ResultCode = &code
+	p.ResultMessage = message
+	p.UpdatedAt = now
+	if success {
+		p.SucceededAt = &now
+	} else {
+		p.FailedAt = &now
+	}
+	return p, true, nil
+}
+
+func (r *Repository) CreateRefund(ctx context.Context, x domain.Refund) error {
+	_, err := r.pool.Exec(ctx, `INSERT INTO refunds(id,payment_id,order_id,amount_vnd,status,provider,provider_request_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(payment_id) DO NOTHING`, x.ID, x.PaymentID, x.OrderID, x.AmountVND, x.Status, x.Provider, x.ProviderRequestID, x.CreatedAt, x.UpdatedAt)
+	return err
+}
+func (r *Repository) CompleteRefund(ctx context.Context, id, transID string, code int, message string, success bool, outbox ports.OutboxEvent) (domain.Refund, bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Refund{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	var x domain.Refund
+	err = tx.QueryRow(ctx, `SELECT id::text,payment_id::text,order_id::text,amount_vnd,status,provider,provider_request_id,created_at,updated_at FROM refunds WHERE id=$1 FOR UPDATE`, id).Scan(&x.ID, &x.PaymentID, &x.OrderID, &x.AmountVND, &x.Status, &x.Provider, &x.ProviderRequestID, &x.CreatedAt, &x.UpdatedAt)
+	if err != nil {
+		return x, false, err
+	}
+	if x.Status != domain.StatusPending {
+		return x, false, tx.Commit(ctx)
+	}
+	status := domain.StatusFailed
+	if success {
+		status = domain.StatusSucceeded
+	}
+	now := time.Now().UTC()
+	_, err = tx.Exec(ctx, `UPDATE refunds SET status=$1,provider_transaction_id=$2,result_code=$3,result_message=$4,succeeded_at=CASE WHEN $5 THEN $6 END,failed_at=CASE WHEN NOT $5 THEN $6 END,updated_at=$6 WHERE id=$7`, status, transID, code, message, success, now, id)
+	if err != nil {
+		return x, false, err
+	}
+	if success {
+		_, err = tx.Exec(ctx, `INSERT INTO outbox_events(id,aggregate_id,event_type,payload,created_at) VALUES($1,$2,$3,$4,$5)`, outbox.ID, outbox.AggregateID, outbox.EventType, outbox.Payload, outbox.CreatedAt)
+		if err != nil {
+			return x, false, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return x, false, err
+	}
+	x.Status = status
+	x.ProviderTransID = transID
+	x.ResultCode = &code
+	x.ResultMessage = message
+	x.UpdatedAt = now
+	return x, true, nil
+}
+func (r *Repository) ListPending(ctx context.Context, before time.Time) ([]domain.Payment, []domain.Refund, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text FROM payments WHERE status='PENDING' AND updated_at<$1 ORDER BY updated_at LIMIT 100`, before)
+	if err != nil {
+		return nil, nil, err
+	}
+	var ps []domain.Payment
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			p, e := r.FindByID(ctx, id)
+			if e == nil {
+				ps = append(ps, p)
+			}
+		}
+	}
+	rows.Close()
+	rr, err := r.pool.Query(ctx, `SELECT id::text,payment_id::text,order_id::text,amount_vnd,status,provider,provider_request_id,COALESCE(provider_transaction_id,''),result_code,result_message,created_at,updated_at,succeeded_at,failed_at FROM refunds WHERE status='PENDING' AND updated_at<$1 ORDER BY updated_at LIMIT 100`, before)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rr.Close()
+	var rs []domain.Refund
+	for rr.Next() {
+		var x domain.Refund
+		if err = rr.Scan(&x.ID, &x.PaymentID, &x.OrderID, &x.AmountVND, &x.Status, &x.Provider, &x.ProviderRequestID, &x.ProviderTransID, &x.ResultCode, &x.ResultMessage, &x.CreatedAt, &x.UpdatedAt, &x.SucceededAt, &x.FailedAt); err != nil {
+			return nil, nil, err
+		}
+		rs = append(rs, x)
+	}
+	return ps, rs, nil
 }
 
 func (r *Repository) FindByID(ctx context.Context, id string) (domain.Payment, error) {
@@ -86,7 +252,7 @@ func (r *Repository) FindByProviderReference(ctx context.Context, ref string) (d
 }
 func findByColumn(ctx context.Context, q rowQuerier, column, value string) (domain.Payment, error) {
 	var p domain.Payment
-	err := q.QueryRow(ctx, `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,created_at,updated_at FROM payments WHERE `+column+`=$1`, value).Scan(&p.ID, &p.OrderID, &p.Type, &p.AmountVND, &p.Currency, &p.Status, &p.PaymentURL, &p.ProviderReference, &p.CreatedAt, &p.UpdatedAt)
+	err := scanPayment(q.QueryRow(ctx, `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,provider,provider_request_id,COALESCE(provider_transaction_id,''),result_code,result_message,succeeded_at,failed_at,created_at,updated_at FROM payments WHERE `+column+`=$1`, value), &p)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Payment{}, domain.ErrPaymentNotFound
 	}
@@ -101,12 +267,12 @@ type rowQuerier interface {
 }
 
 func findByID(ctx context.Context, queryer rowQuerier, id string, forUpdate bool) (domain.Payment, error) {
-	query := `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,created_at,updated_at FROM payments WHERE id=$1`
+	query := `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,provider,provider_request_id,COALESCE(provider_transaction_id,''),result_code,result_message,succeeded_at,failed_at,created_at,updated_at FROM payments WHERE id=$1`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
 	var payment domain.Payment
-	err := queryer.QueryRow(ctx, query, id).Scan(&payment.ID, &payment.OrderID, &payment.Type, &payment.AmountVND, &payment.Currency, &payment.Status, &payment.PaymentURL, &payment.ProviderReference, &payment.CreatedAt, &payment.UpdatedAt)
+	err := scanPayment(queryer.QueryRow(ctx, query, id), &payment)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Payment{}, domain.ErrPaymentNotFound
 	}
@@ -114,6 +280,10 @@ func findByID(ctx context.Context, queryer rowQuerier, id string, forUpdate bool
 		return domain.Payment{}, fmt.Errorf("find payment: %w", err)
 	}
 	return payment, nil
+}
+
+func scanPayment(row pgx.Row, p *domain.Payment) error {
+	return row.Scan(&p.ID, &p.OrderID, &p.Type, &p.AmountVND, &p.Currency, &p.Status, &p.PaymentURL, &p.ProviderReference, &p.Provider, &p.ProviderRequestID, &p.ProviderTransID, &p.ResultCode, &p.ResultMessage, &p.SucceededAt, &p.FailedAt, &p.CreatedAt, &p.UpdatedAt)
 }
 
 func (r *Repository) Succeed(ctx context.Context, id string, outbox ports.OutboxEvent) (domain.Payment, bool, error) {

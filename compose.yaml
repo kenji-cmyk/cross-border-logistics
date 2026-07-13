@@ -101,6 +101,8 @@ services:
       - >-
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic order.created.v1 --partitions 3 --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.deposit_succeeded.v1 --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.remaining_balance_succeeded.v1 --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.refund_succeeded.v1 --partitions 3 --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic order.status_changed.v1 --partitions 3 --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic package.received.v1 --partitions 1 --replication-factor 1
     networks:
@@ -163,6 +165,13 @@ services:
       KAFKA_BROKERS: kafka:9092
       ORDER_SERVICE_URL: http://order-service:8080
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-demo-webhook-secret}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
+      MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}
+      MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
+      MOMO_API_BASE_URL: ${MOMO_API_BASE_URL:-https://test-payment.momo.vn}
+      MOMO_IPN_URL: ${MOMO_IPN_URL:-}
+      MOMO_REDIRECT_URL: ${MOMO_REDIRECT_URL:-}
 
   warehouse-service:
     <<: *go-service

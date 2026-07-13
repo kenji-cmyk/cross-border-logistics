@@ -45,10 +45,34 @@ type Payment struct {
 	Status            PaymentStatus `json:"status"`
 	PaymentURL        string        `json:"paymentUrl"`
 	ProviderReference string        `json:"providerReference"`
+	Provider          string        `json:"provider"`
+	ProviderRequestID string        `json:"providerRequestId"`
+	ProviderTransID   string        `json:"providerTransactionId,omitempty"`
+	ResultCode        *int          `json:"resultCode,omitempty"`
+	ResultMessage     string        `json:"resultMessage,omitempty"`
+	SucceededAt       *time.Time    `json:"succeededAt,omitempty"`
+	FailedAt          *time.Time    `json:"failedAt,omitempty"`
 	CreatedAt         time.Time     `json:"createdAt"`
 	UpdatedAt         time.Time     `json:"updatedAt"`
 }
 
+type Refund struct {
+	ID                string        `json:"refundId"`
+	PaymentID         string        `json:"paymentId"`
+	OrderID           string        `json:"orderId"`
+	Provider          string        `json:"provider"`
+	ProviderRequestID string        `json:"providerRequestId"`
+	ProviderTransID   string        `json:"providerTransactionId,omitempty"`
+	ResultMessage     string        `json:"resultMessage,omitempty"`
+	AmountVND         int64         `json:"amountVnd"`
+	Status            PaymentStatus `json:"status"`
+	ResultCode        *int          `json:"resultCode,omitempty"`
+	CreatedAt         time.Time     `json:"createdAt"`
+	UpdatedAt         time.Time     `json:"updatedAt"`
+	SucceededAt       *time.Time    `json:"succeededAt,omitempty"`
+	FailedAt          *time.Time    `json:"failedAt,omitempty"`
+}
+
 func CanTransition(from, to PaymentStatus) bool {
-	return from == StatusPending && to == StatusSucceeded
+	return from == StatusPending && (to == StatusSucceeded || to == StatusFailed || to == StatusCancelled)
 }

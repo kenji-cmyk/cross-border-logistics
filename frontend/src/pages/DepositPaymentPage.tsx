@@ -20,6 +20,7 @@ import {
   orderStatusPresentation,
   paymentStatusPresentation,
 } from "../lib/presentation";
+import { orderToken } from "../lib/storage";
 
 const DEMO_MODE =
   import.meta.env.VITE_DEMO_MODE === "true" || import.meta.env.DEV;
@@ -37,6 +38,7 @@ export function DepositPaymentPage() {
     refetchInterval: (query) =>
       query.state.data?.status === "PENDING" ? 5_000 : false,
   });
+  const financials=useQuery({queryKey:["financials",orderId],queryFn:()=>frontendApi.getFinancials(orderId),refetchInterval:5_000});
   const create = useMutation({
     mutationFn: () => frontendApi.createDeposit(orderId),
     onSuccess: (result) => {
@@ -51,6 +53,8 @@ export function DepositPaymentPage() {
       void client.invalidateQueries({ queryKey: ["order", orderId] });
     },
   });
+  const remaining=useMutation({mutationFn:()=>frontendApi.createRemaining(orderId),onSuccess:(result)=>{setParams({paymentId:result.paymentId},{replace:true});client.setQueryData(["payment",result.paymentId],result);}});
+  const refund=useMutation({mutationFn:()=>{const token=orderToken(orderId);if(!token)throw new Error("Order ownership token is unavailable in this tab. Contact support for a refund.");return frontendApi.refundAll(orderId,token);},onSuccess:()=>{void financials.refetch();void stream.order.refetch();}});
   useEffect(() => {
     if (!autoCreateAttempted.current && !paymentId && stream.order.data?.status === "WAITING_DEPOSIT") {
       autoCreateAttempted.current = true;
@@ -202,6 +206,9 @@ export function DepositPaymentPage() {
                     </Button>
                   </div>
                 )}
+                {currentPayment.status === "SUCCEEDED" && currentPayment.type === "DEPOSIT" && order.status === "WAITING_PURCHASE" && !financials.data?.payments.some((p)=>p.type === "REMAINING_BALANCE") && <Button variant="secondary" onClick={()=>remaining.mutate()} loading={remaining.isPending} className="mt-4 w-full">Pay remaining balance</Button>}
+                {(order.status === "WAITING_DEPOSIT" || order.status === "WAITING_PURCHASE") && (financials.data?.paidVnd ?? 0)>0 && <Button variant="secondary" onClick={()=>{if(window.confirm("Refund every successful payment and cancel the order after the full refund completes?"))refund.mutate();}} loading={refund.isPending} className="mt-3 w-full">Refund all payments</Button>}
+                {(remaining.isError||refund.isError)&&<div className="mt-4"><ErrorPanel error={remaining.error??refund.error} onRetry={()=>{remaining.reset();refund.reset();}} /></div>}
               </div>
             ) : (
               <Button
