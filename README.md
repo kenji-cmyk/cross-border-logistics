@@ -20,7 +20,7 @@ a SePay VietQR request for the remaining 30% and moves the Order to
 
 ## Architecture
 
-The public Nginx container serves the React frontend and forwards browser API requests to an internal Nginx API gateway. Six Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, Order consumers use `processed_events` for idempotency, and Notification streams status changes through SSE. Admin caches Vietcombank reference selling rates, while Quotation reads that same Admin snapshot before calculating a quotation. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
+Caddy is the only public ingress. It serves local HTTP by default and enables automatic HTTPS when configured with a public domain, then proxies every request to the private frontend Nginx container. Frontend Nginx serves React and forwards browser API requests to the internal Nginx API gateway. Six Go services use a logical database-per-service model in one PostgreSQL container. Transactional outboxes publish to one Kafka broker, Order consumers use `processed_events` for idempotency, and Notification streams status changes through SSE. Admin caches Vietcombank reference selling rates, while Quotation reads that same Admin snapshot before calculating a quotation. Docker Compose runs the complete single-node demo. See [architecture](docs/architecture.md).
 
 ## Services
 
@@ -35,7 +35,7 @@ The public Nginx container serves the React frontend and forwards browser API re
 
 ## Technology stack
 
-Go 1.25, PostgreSQL 17 Alpine, Apache Kafka 3.9.1 (KRaft), Nginx 1.27 Alpine, Kafka UI 0.7.2, Docker Compose, `pgx/v5`, and `franz-go`. Exact Go dependencies are in `backend/go.mod`.
+Go 1.25, PostgreSQL 17 Alpine, Apache Kafka 3.9.1 (KRaft), Caddy 2.11.4 Alpine, Nginx 1.27 Alpine, Kafka UI 0.7.2, Docker Compose, `pgx/v5`, and `franz-go`. Exact Go dependencies are in `backend/go.mod`.
 
 ## Repository structure
 
@@ -96,6 +96,7 @@ cross-border-logistics/
 |   |-- package-lock.json
 |   |-- tailwind.config.js
 |   `-- vite.config.ts
+|-- deploy/caddy/                         Public HTTP/HTTPS ingress configuration
 |-- docs/
 |   |-- api/                              ApiDog/Postman manual-test collection
 |   |-- api-examples.md
@@ -129,7 +130,11 @@ docker compose ps
 make demo
 ```
 
-If executable bits were not preserved by the transfer, run `chmod +x scripts/*.sh`. The UI is available at `http://localhost/`, frontend health at `/ui-health`, and gateway health at `/health`. Individual backend containers are not published to the host.
+If executable bits were not preserved by the transfer, run `chmod +x scripts/*.sh`. With the default `PUBLIC_SITE_ADDRESS=:80`, Caddy keeps the UI available at `http://localhost/`, frontend health at `/ui-health`, and gateway health at `/health`. Frontend Nginx and every backend container remain private to the Compose network.
+
+Public ingress settings are `PUBLIC_SITE_ADDRESS`, `PUBLIC_HTTP_PORT`, and
+`PUBLIC_HTTPS_PORT`. Set a real DNS name without a scheme as
+`PUBLIC_SITE_ADDRESS` to enable Caddy-managed HTTPS; keep `:80` for local HTTP.
 
 The default Compose configuration requires outbound HTTPS access from `admin-service` to load Vietcombank exchange rates. For a deterministic offline run, set `EXCHANGE_RATE_PROVIDER=fixed` in `.env` before starting the stack.
 
@@ -232,7 +237,7 @@ PAYMENT_PROVIDER=sepay_pg
 SEPAY_PG_ENV=sandbox
 SEPAY_PG_MERCHANT_ID=your-sandbox-merchant-id
 SEPAY_PG_SECRET_KEY=your-sandbox-secret-key
-SEPAY_PUBLIC_URL=https://your-tunnel.trycloudflare.com
+SEPAY_PUBLIC_URL=https://your-public-origin
 ```
 
 For a pending payment, `paymentUrl` points to the same-origin route
@@ -247,7 +252,7 @@ SePay must be able to reach this IPN URL:
 https://your-public-origin/api/v1/payments/sepay/pg/ipn
 ```
 
-For local Sandbox testing, expose Nginx with a quick Cloudflare Tunnel and keep
+For local Sandbox testing, expose Caddy's local HTTP port with a quick Cloudflare Tunnel and keep
 that terminal running:
 
 ```powershell
@@ -263,6 +268,20 @@ docker compose up -d --force-recreate payment-service
 ```
 
 Quick Tunnel URLs change whenever a new tunnel is created.
+
+For a stable server deployment, configure Caddy and SePay with the same origin:
+
+```dotenv
+PUBLIC_SITE_ADDRESS=cross-border-logistics.duckdns.org
+PUBLIC_HTTP_PORT=80
+PUBLIC_HTTPS_PORT=443
+SEPAY_PUBLIC_URL=https://cross-border-logistics.duckdns.org
+```
+
+Keep TCP 80 open for ACME validation and HTTP-to-HTTPS redirects, expose TCP
+443, and configure SePay's IPN URL as
+`https://cross-border-logistics.duckdns.org/api/v1/payments/sepay/pg/ipn`.
+Certificates and private keys persist in the `caddy-data` volume.
 
 To switch from Sandbox to Production, set `SEPAY_PG_ENV=production`, replace the
 merchant ID and secret with Production credentials, use a stable public HTTPS
@@ -303,20 +322,20 @@ See the [single-instance EC2 deployment guide](docs/ec2-deployment.md).
 
 ```bash
 docker compose down       # keeps PostgreSQL volume data
-docker compose down -v    # permanently deletes project volumes and PostgreSQL data
+docker compose down -v    # permanently deletes PostgreSQL data and Caddy certificates
 ```
 
 The safer scripted form is `make reset-demo`; destructive reset requires `./scripts/reset-demo.sh --delete-data` and confirmation.
 
 ## Current limitations
 
-- Demo customer identity remains request-scoped; production must derive it from authentication. Real provider certification, broad marketplace scraping, domestic shipping API, and local TLS remain out of scope.
+- Demo customer identity remains request-scoped; production must derive it from authentication. Real provider certification, broad marketplace scraping, domestic shipping API, and locally trusted HTTPS remain out of scope.
 - One Kafka broker, one PostgreSQL container, and one single-node EC2 deployment; no production HA and no claim of supporting 2,000 concurrent users.
 - Vietcombank rates are reference selling rates cached for at least five minutes, not guaranteed executable foreign-exchange quotes. The provider has no SLA or secondary live-provider failover in this demo.
 - The demo intentionally transitions directly from `WAITING_PURCHASE` to `ARRIVED_FOREIGN_WAREHOUSE`.
 
 ## Production evolution
 
-A future production system could add a load balancer, autoscaling, TLS, authentication, a secrets manager, managed PostgreSQL, a Kafka cluster, observability, object storage, and the complete Order workflow. None of those capabilities are implemented here.
+A future production system could replace the single-node Caddy ingress with a managed load balancer, then add autoscaling, authentication, a secrets manager, managed PostgreSQL, a Kafka cluster, observability, object storage, and the complete Order workflow. None of those capabilities are implemented here.
 
 See [troubleshooting](docs/troubleshooting.md) and the [final acceptance report](docs/final-acceptance-report.md).

@@ -1,0 +1,4 @@
+{$PUBLIC_SITE_ADDRESS} {
+	log
+	reverse_proxy frontend:80
+}

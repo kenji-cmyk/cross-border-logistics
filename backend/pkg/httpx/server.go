@@ -33,12 +33,22 @@ func Run(logger *slog.Logger, port string, handler http.Handler) error {
 }
 
 func RunContext(ctx context.Context, logger *slog.Logger, port string, handler http.Handler) error {
+	return runContext(ctx, logger, port, handler, 10*time.Second)
+}
+
+// RunStreamingContext disables the absolute response write deadline so
+// long-lived handlers such as Server-Sent Events can keep flushing data.
+func RunStreamingContext(ctx context.Context, logger *slog.Logger, port string, handler http.Handler) error {
+	return runContext(ctx, logger, port, handler, 0)
+}
+
+func runContext(ctx context.Context, logger *slog.Logger, port string, handler http.Handler, writeTimeout time.Duration) error {
 	server := &http.Server{
 		Addr:              ":" + port,
 		Handler:           RequestIDMiddleware(LoggingMiddleware(logger, handler)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 
