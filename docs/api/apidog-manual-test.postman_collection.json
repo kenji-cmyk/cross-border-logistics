@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "b5ddce9c-f62c-4b8b-84a1-5a352fd2ba07",
     "name": "Cross-border Logistics - Manual API Flow",
-    "description": "Import this Postman Collection v2.1 file into ApiDog and run requests in numbered order. IDs, the active Admin rate snapshot, quotation totals, and payment provider references are captured automatically. Start the stack with docker compose up -d --build first. The signed payment callback uses the default development secret; update webhookSecret if PAYMENT_WEBHOOK_SECRET is different.",
+    "description": "Import this Postman Collection v2.1 file into ApiDog and run requests in numbered order. IDs, the active Admin rate snapshot, quotation totals, and payment provider references are captured automatically. Start the stack with docker compose up -d --build first. The signed SePay webhook uses the default development secret; update webhookSecret if SEPAY_WEBHOOK_SECRET is different.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -16,6 +16,7 @@
     { "key": "adminRatesEffectiveAt", "value": "", "type": "string" },
     { "key": "quotationTotal", "value": "", "type": "string" },
     { "key": "paymentProviderReference", "value": "", "type": "string" },
+    { "key": "paymentAmount", "value": "", "type": "string" },
     { "key": "webhookSecret", "value": "demo-webhook-secret", "type": "string" },
     { "key": "callbackBody", "value": "", "type": "string" },
     { "key": "callbackTimestamp", "value": "", "type": "string" },
@@ -207,7 +208,8 @@
               "});",
               "pm.test('Hosted payment URL is HTTPS', () => pm.expect(json.data.paymentUrl).to.match(/^https:\\/\\//));",
               "pm.collectionVariables.set('paymentId', json.data.paymentId);",
-              "pm.collectionVariables.set('paymentProviderReference', json.data.providerReference);"
+              "pm.collectionVariables.set('paymentProviderReference', json.data.providerReference);",
+              "pm.collectionVariables.set('paymentAmount', String(json.data.amountVnd));"
             ] }
           }]
         },
@@ -232,15 +234,15 @@
                 "const cryptoJs = require('crypto-js');",
                 "const timestamp = String(Math.floor(Date.now() / 1000));",
                 "const body = JSON.stringify({",
-                "  eventId: 'callback-' + pm.collectionVariables.get('runId'),",
-                "  providerReference: pm.collectionVariables.get('paymentProviderReference'),",
-                "  status: 'SUCCEEDED'",
+                "  id: Date.now(), gateway: 'DemoBank', transactionDate: '2026-07-15 09:30:00', accountNumber: '0000000000', subAccount: '',",
+                "  code: pm.collectionVariables.get('paymentProviderReference'), content: pm.collectionVariables.get('paymentProviderReference'), transferType: 'in', description: 'demo',",
+                "  transferAmount: Number(pm.collectionVariables.get('paymentAmount')), accumulated: Number(pm.collectionVariables.get('paymentAmount')), referenceCode: 'APIDOG' + Date.now()",
                 "});",
                 "const secret = pm.collectionVariables.get('webhookSecret');",
                 "const signature = cryptoJs.HmacSHA256(timestamp + '.' + body, secret).toString(cryptoJs.enc.Hex);",
                 "pm.collectionVariables.set('callbackBody', body);",
                 "pm.collectionVariables.set('callbackTimestamp', timestamp);",
-                "pm.collectionVariables.set('callbackSignature', signature);"
+                "pm.collectionVariables.set('callbackSignature', 'sha256=' + signature);"
               ] }
             },
             {
@@ -248,8 +250,7 @@
               "script": { "type": "text/javascript", "exec": [
                 "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
                 "const json = pm.response.json();",
-                "pm.test('Payment succeeded through the signed callback', () => pm.expect(json.data.status).to.eql('SUCCEEDED'));",
-                "pm.test('Callback updated the captured payment', () => pm.expect(json.data.paymentId).to.eql(pm.collectionVariables.get('paymentId')));"
+                "pm.test('SePay accepted the webhook', () => pm.expect(json.success).to.eql(true));"
               ] }
             }
           ],
@@ -258,14 +259,15 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Webhook-Signature", "value": "t={{callbackTimestamp}},v1={{callbackSignature}}" }
+              { "key": "X-SePay-Timestamp", "value": "{{callbackTimestamp}}" },
+              { "key": "X-SePay-Signature", "value": "{{callbackSignature}}" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{{callbackBody}}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/callback", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "callback"] }
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/sepay/webhook", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "sepay", "webhook"] }
           }
         },
         {
@@ -413,14 +415,15 @@
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "X-Webhook-Signature", "value": "t=0,v1=00" }
+              { "key": "X-SePay-Timestamp", "value": "0" },
+              { "key": "X-SePay-Signature", "value": "sha256=00" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"eventId\": \"invalid-signature\",\n  \"providerReference\": \"invalid-provider\",\n  \"status\": \"SUCCEEDED\"\n}",
+              "raw": "{\n  \"id\": 1\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": { "raw": "{{baseUrl}}/api/v1/payments/callback", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "callback"] }
+            "url": { "raw": "{{baseUrl}}/api/v1/payments/sepay/webhook", "host": ["{{baseUrl}}"], "path": ["api", "v1", "payments", "sepay", "webhook"] }
           },
           "event": [{
             "listen": "test",

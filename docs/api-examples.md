@@ -11,7 +11,11 @@ All public responses use `{ "data": ..., "meta": { "requestId": ... } }`; errors
 | POST / GET | `/api/v1/orders` / `/api/v1/orders/{orderId}` |
 | GET | `/api/v1/orders/{orderId}/timeline` |
 | POST | `/api/v1/payments/deposit` |
-| GET / POST | `/api/v1/payments/{paymentId}` / `/api/v1/payments/callback` |
+| POST | `/api/v1/payments/remaining-balance` |
+| GET | `/api/v1/payments/{paymentId}` |
+| GET (`sepay_pg`) | `/api/v1/payments/{paymentId}/checkout` |
+| POST (direct `sepay`) | `/api/v1/payments/sepay/webhook` |
+| POST (`sepay_pg`) | `/api/v1/payments/sepay/pg/ipn` |
 | GET (SSE) | `/api/v1/notifications/orders/{orderId}/stream` |
 | POST | `/api/v1/warehouse/packages/receive` |
 | GET | `/api/v1/warehouse/packages/{packageId}` |
@@ -81,8 +85,35 @@ PAYMENT=$(curl -sS -X POST "$BASE_URL/api/v1/payments/deposit" -H 'Content-Type:
 echo "$PAYMENT" | jq
 PAYMENT_ID=$(echo "$PAYMENT" | jq -r '.data.paymentId')
 curl -sS "$BASE_URL/api/v1/payments/$PAYMENT_ID" | jq
-# `make demo` signs and replays the provider callback using PAYMENT_WEBHOOK_SECRET.
+PAYMENT_URL=$(echo "$PAYMENT" | jq -r '.data.paymentUrl')
+echo "$PAYMENT_URL"
 ```
+
+The deposit endpoint uses the authoritative 70% amount stored by Order. The
+remaining-balance endpoint uses the authoritative 30% amount and is accepted
+only while the Order is `WAITING_REMAINING_PAYMENT`.
+
+Complete the pending payment according to `PAYMENT_PROVIDER`:
+
+- `mock`: call `POST /api/v1/payments/{paymentId}/mock-success`. This endpoint is
+  registered only in mock/demo mode.
+- `sepay`: display or open `paymentUrl`, transfer the exact amount with the exact
+  payment code, and let SePay call `/api/v1/payments/sepay/webhook`. The webhook
+  uses `SEPAY_WEBHOOK_SECRET`; a successful request returns the provider-specific
+  body `{"success":true}` instead of the public API envelope. The demo script can
+  sign and replay this SePay-format webhook.
+- `sepay_pg`: open `paymentUrl` in a browser. It points to
+  `GET /api/v1/payments/{paymentId}/checkout`, which returns same-origin HTML and
+  auto-submits a signed form to SePay's hosted checkout. Do not treat the browser
+  return as payment confirmation; only
+  `POST /api/v1/payments/sepay/pg/ipn` can complete the payment.
+
+For a local `sepay_pg` Sandbox run, start
+`cloudflared tunnel --url http://localhost:80`, set `SEPAY_PUBLIC_URL` to the
+generated HTTPS origin, and configure SePay's IPN URL as
+`$SEPAY_PUBLIC_URL/api/v1/payments/sepay/pg/ipn`. The IPN authenticates with the
+server-side `SEPAY_PG_SECRET_KEY`; never expose that key in frontend code or send
+it from the browser.
 
 Expected statuses are Order `WAITING_DEPOSIT`, Payment `PENDING`, then Payment `SUCCEEDED`. Poll rather than relying on a fixed sleep:
 

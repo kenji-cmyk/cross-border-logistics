@@ -28,12 +28,13 @@ type Currency string
 const CurrencyVND Currency = "VND"
 
 var (
-	ErrPaymentNotFound = errors.New("payment not found")
-	ErrPaymentConflict = errors.New("deposit payment already exists")
-	ErrInvalidInput    = errors.New("invalid payment input")
-	ErrInvalidState    = errors.New("invalid payment state")
-	ErrOrderNotFound   = errors.New("order not found")
-	ErrDependency      = errors.New("order service dependency failed")
+	ErrPaymentNotFound     = errors.New("payment not found")
+	ErrPaymentConflict     = errors.New("payment already exists for order and type")
+	ErrInvalidInput        = errors.New("invalid payment input")
+	ErrInvalidState        = errors.New("invalid payment state")
+	ErrOrderNotFound       = errors.New("order not found")
+	ErrDependency          = errors.New("order service dependency failed")
+	ErrCheckoutUnavailable = errors.New("hosted checkout is unavailable")
 )
 
 type Payment struct {

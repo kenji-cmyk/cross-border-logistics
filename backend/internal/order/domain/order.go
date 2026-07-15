@@ -7,6 +7,8 @@ import (
 
 type OrderStatus string
 
+const RemainingBalanceSucceededTrackingDescription = "Đã nhận đủ 30% còn lại, đơn hàng sẵn sàng giao nội địa"
+
 const (
 	StatusWaitingDeposit                OrderStatus = "WAITING_DEPOSIT"
 	StatusWaitingPurchase               OrderStatus = "WAITING_PURCHASE"

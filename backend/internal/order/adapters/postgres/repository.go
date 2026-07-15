@@ -66,6 +66,10 @@ func (r *Repository) ProcessPaymentSucceeded(ctx context.Context, input ports.Pr
 	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusWaitingPurchase, input.AmountVND)
 }
 
+func (r *Repository) ProcessRemainingPaymentSucceeded(ctx context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
+	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusReadyForDomesticDelivery, input.AmountVND)
+}
+
 func (r *Repository) ProcessPackageReceived(ctx context.Context, input ports.ProcessPackageReceived) (bool, error) {
 	return r.processStatusEvent(ctx, input.EventID, input.EventType, input.OrderID, input.ProcessedAt, input.Tracking, input.Outbox, domain.StatusArrivedForeignWarehouse, 0)
 }
@@ -87,13 +91,17 @@ func (r *Repository) processStatusEvent(ctx context.Context, eventID, eventType,
 		return false, nil
 	}
 	var current domain.OrderStatus
-	var depositAmount int64
-	if err := tx.QueryRow(ctx, `SELECT status,deposit_amount_vnd FROM orders WHERE id=$1 FOR UPDATE`, orderID).Scan(&current, &depositAmount); errors.Is(err, pgx.ErrNoRows) {
+	var depositAmount, remainingAmount int64
+	if err := tx.QueryRow(ctx, `SELECT status,deposit_amount_vnd,remaining_amount_vnd FROM orders WHERE id=$1 FOR UPDATE`, orderID).Scan(&current, &depositAmount, &remainingAmount); errors.Is(err, pgx.ErrNoRows) {
 		return false, domain.ErrOrderNotFound
 	} else if err != nil {
 		return false, fmt.Errorf("lock order: %w", err)
 	}
-	if expectedAmount > 0 && expectedAmount != depositAmount {
+	storedAmount := depositAmount
+	if target == domain.StatusReadyForDomesticDelivery {
+		storedAmount = remainingAmount
+	}
+	if expectedAmount > 0 && expectedAmount != storedAmount {
 		return false, domain.ErrInvalidInput
 	}
 	if !domain.CanTransition(current, target) {

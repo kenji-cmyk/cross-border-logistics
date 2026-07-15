@@ -21,6 +21,19 @@ type fakeOrderReader struct {
 	err     error
 }
 
+type fakeCheckoutGateway struct {
+	form ports.CheckoutForm
+	err  error
+}
+
+func (f fakeCheckoutGateway) CreateTransaction(context.Context, string, int64, string) (ports.GatewayTransaction, error) {
+	return ports.GatewayTransaction{}, nil
+}
+
+func (f fakeCheckoutGateway) BuildCheckout(context.Context, domain.Payment) (ports.CheckoutForm, error) {
+	return f.form, f.err
+}
+
 func (f fakeOrderReader) GetPaymentSummary(context.Context, string) (ports.OrderPaymentSummary, error) {
 	return f.summary, f.err
 }
@@ -30,6 +43,7 @@ type fakeRepository struct {
 	createErr    error
 	succeedCalls int
 	outbox       ports.OutboxEvent
+	callbacks    map[string]bool
 }
 
 func (f *fakeRepository) Create(_ context.Context, payment domain.Payment) error {
@@ -41,6 +55,18 @@ func (f *fakeRepository) Create(_ context.Context, payment domain.Payment) error
 }
 func (f *fakeRepository) FindByID(_ context.Context, id string) (domain.Payment, error) {
 	if f.payment.ID != id {
+		return domain.Payment{}, domain.ErrPaymentNotFound
+	}
+	return f.payment, nil
+}
+func (f *fakeRepository) FindByOrderIDAndType(_ context.Context, orderID string, paymentType domain.PaymentType) (domain.Payment, error) {
+	if f.payment.OrderID != orderID || f.payment.Type != paymentType {
+		return domain.Payment{}, domain.ErrPaymentNotFound
+	}
+	return f.payment, nil
+}
+func (f *fakeRepository) FindByProviderReference(_ context.Context, reference string) (domain.Payment, error) {
+	if f.payment.ProviderReference != reference {
 		return domain.Payment{}, domain.ErrPaymentNotFound
 	}
 	return f.payment, nil
@@ -57,6 +83,16 @@ func (f *fakeRepository) Succeed(_ context.Context, id string, outbox ports.Outb
 	f.payment.UpdatedAt = outbox.CreatedAt
 	f.outbox = outbox
 	return f.payment, true, nil
+}
+func (f *fakeRepository) SucceedCallback(ctx context.Context, id, eventID string, outbox ports.OutboxEvent) (domain.Payment, bool, error) {
+	if f.callbacks == nil {
+		f.callbacks = map[string]bool{}
+	}
+	if f.callbacks[eventID] {
+		return f.payment, false, nil
+	}
+	f.callbacks[eventID] = true
+	return f.Succeed(ctx, id, outbox)
 }
 
 func validSummary() ports.OrderPaymentSummary {
@@ -90,6 +126,51 @@ func TestCreateDepositRejectsInvalidOrderStateAndDuplicate(t *testing.T) {
 	}
 }
 
+func TestCreateRemainingBalanceUsesAuthoritativeThirtyPercent(t *testing.T) {
+	summary := validSummary()
+	summary.Status = "WAITING_REMAINING_PAYMENT"
+	repository := &fakeRepository{}
+	result, err := application.NewService(repository, fakeOrderReader{summary: summary}).CreateRemainingBalance(context.Background(), application.CreateRemainingBalanceInput{OrderID: orderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Type != domain.TypeRemainingBalance || result.AmountVND != summary.RemainingAmountVND {
+		t.Fatalf("unexpected remaining payment: %+v", result)
+	}
+}
+
+func TestProcessSePayWebhookValidatesAmountAndEmitsRemainingEventOnce(t *testing.T) {
+	repository := &fakeRepository{payment: domain.Payment{ID: paymentID, OrderID: orderID, Type: domain.TypeRemainingBalance, AmountVND: 445_500, Currency: domain.CurrencyVND, Status: domain.StatusPending, ProviderReference: "CBL9F42FC31E997"}}
+	service := application.NewService(repository, fakeOrderReader{})
+	input := application.SePayWebhookInput{ProviderReference: repository.payment.ProviderReference, EventID: "sepay:92704", TransferType: "in", TransferAmountVND: 445_500}
+	result, err := service.ProcessSePayWebhook(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != domain.StatusSucceeded || repository.outbox.EventType != "payment.remaining_balance_succeeded.v1" {
+		t.Fatalf("unexpected webhook result=%+v outbox=%+v", result, repository.outbox)
+	}
+	if _, err := service.ProcessSePayWebhook(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	if repository.succeedCalls != 1 {
+		t.Fatalf("replayed SePay transaction emitted %d events", repository.succeedCalls)
+	}
+
+	badAmount := input
+	badAmount.EventID = "sepay:92705"
+	badAmount.TransferAmountVND--
+	if _, err := service.ProcessSePayWebhook(context.Background(), badAmount); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("amount mismatch error = %v", err)
+	}
+	badDirection := input
+	badDirection.EventID = "sepay:92706"
+	badDirection.TransferType = "out"
+	if _, err := service.ProcessSePayWebhook(context.Background(), badDirection); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("outgoing transfer error = %v", err)
+	}
+}
+
 func TestMarkSucceededCreatesOneEvent(t *testing.T) {
 	repository := &fakeRepository{payment: domain.Payment{ID: paymentID, OrderID: orderID, Type: domain.TypeDeposit, AmountVND: 1_039_500, Currency: domain.CurrencyVND, Status: domain.StatusPending}}
 	service := application.NewService(repository, fakeOrderReader{})
@@ -119,5 +200,29 @@ func TestMarkSucceededMissingPayment(t *testing.T) {
 	_, err := application.NewService(&fakeRepository{}, fakeOrderReader{}).MarkSucceeded(context.Background(), paymentID)
 	if !errors.Is(err, domain.ErrPaymentNotFound) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestBuildCheckoutRequiresPendingHostedPayment(t *testing.T) {
+	form := ports.CheckoutForm{Action: "https://pay-sandbox.sepay.vn/v1/checkout/init", Fields: []ports.CheckoutField{{Name: "merchant", Value: "SP-TEST"}}}
+	repository := &fakeRepository{payment: domain.Payment{ID: paymentID, OrderID: orderID, Status: domain.StatusPending}}
+	service := application.NewService(repository, fakeOrderReader{}, fakeCheckoutGateway{form: form})
+	result, err := service.BuildCheckout(context.Background(), paymentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != form.Action || len(result.Fields) != 1 {
+		t.Fatalf("unexpected checkout form: %+v", result)
+	}
+
+	service = application.NewService(repository, fakeOrderReader{})
+	if _, err := service.BuildCheckout(context.Background(), paymentID); !errors.Is(err, domain.ErrCheckoutUnavailable) {
+		t.Fatalf("missing hosted gateway error = %v", err)
+	}
+
+	repository.payment.Status = domain.StatusSucceeded
+	service = application.NewService(repository, fakeOrderReader{}, fakeCheckoutGateway{form: form})
+	if _, err := service.BuildCheckout(context.Background(), paymentID); !errors.Is(err, domain.ErrInvalidState) {
+		t.Fatalf("succeeded payment checkout error = %v", err)
 	}
 }

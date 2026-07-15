@@ -57,6 +57,10 @@ func (f *fakeRepository) ProcessPaymentSucceeded(_ context.Context, input ports.
 	f.processed = input
 	return f.processChanged, f.processErr
 }
+func (f *fakeRepository) ProcessRemainingPaymentSucceeded(_ context.Context, input ports.ProcessPaymentSucceeded) (bool, error) {
+	f.processed = input
+	return f.processChanged, f.processErr
+}
 func (f *fakeRepository) ProcessPackageReceived(_ context.Context, input ports.ProcessPackageReceived) (bool, error) {
 	f.packageProcessed = input
 	return f.processChanged, f.processErr
@@ -90,6 +94,34 @@ func TestHandlePaymentDepositSucceededBuildsAtomicChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if data.PreviousStatus != string(domain.StatusWaitingDeposit) || data.CurrentStatus != string(domain.StatusWaitingPurchase) || data.OrderID != orderID {
+		t.Fatalf("unexpected status event: %+v", data)
+	}
+}
+
+func TestHandleRemainingPaymentSucceededBuildsReadyForDeliveryChange(t *testing.T) {
+	repository := &fakeRepository{processChanged: true}
+	service := application.NewService(repository, fakeQuotationReader{})
+	orderID := uuid.MustParse(quotationID)
+	envelope, err := sharedevent.New(sharedevent.PaymentRemainingBalanceSucceeded, orderID, "payment-service", time.Now(), sharedevent.PaymentRemainingBalanceSucceededData{PaymentID: uuid.New(), OrderID: orderID, AmountVND: 445_500, Currency: "VND"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := service.HandlePaymentRemainingBalanceSucceeded(context.Background(), envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || repository.processed.Tracking.Status != domain.StatusReadyForDomesticDelivery || repository.processed.AmountVND != 445_500 {
+		t.Fatalf("unexpected remaining payment processing: changed=%v input=%+v", changed, repository.processed)
+	}
+	var statusEnvelope sharedevent.Envelope
+	if err := json.Unmarshal(repository.processed.Outbox.Payload, &statusEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	var data sharedevent.OrderStatusChangedData
+	if err := json.Unmarshal(statusEnvelope.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.PreviousStatus != string(domain.StatusWaitingRemainingPayment) || data.CurrentStatus != string(domain.StatusReadyForDomesticDelivery) {
 		t.Fatalf("unexpected status event: %+v", data)
 	}
 }

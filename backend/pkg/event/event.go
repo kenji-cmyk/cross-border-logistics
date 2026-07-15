@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	OrderCreated            = "order.created.v1"
-	PaymentDepositSucceeded = "payment.deposit_succeeded.v1"
-	OrderStatusChanged      = "order.status_changed.v1"
-	PackageReceived         = "package.received.v1"
+	OrderCreated                     = "order.created.v1"
+	PaymentDepositSucceeded          = "payment.deposit_succeeded.v1"
+	PaymentRemainingBalanceSucceeded = "payment.remaining_balance_succeeded.v1"
+	OrderStatusChanged               = "order.status_changed.v1"
+	PackageReceived                  = "package.received.v1"
 )
 
 type Envelope struct {
@@ -46,6 +47,8 @@ type PaymentDepositSucceededData struct {
 	AmountVND int64     `json:"amountVnd"`
 	Currency  string    `json:"currency"`
 }
+
+type PaymentRemainingBalanceSucceededData = PaymentDepositSucceededData
 
 type OrderStatusChangedData struct {
 	OrderID        uuid.UUID `json:"orderId"`

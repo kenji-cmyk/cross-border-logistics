@@ -194,6 +194,34 @@ func (s *Service) HandlePaymentDepositSucceeded(ctx context.Context, envelope sh
 	})
 }
 
+func (s *Service) HandlePaymentRemainingBalanceSucceeded(ctx context.Context, envelope sharedevent.Envelope) (bool, error) {
+	if envelope.EventType != sharedevent.PaymentRemainingBalanceSucceeded || envelope.Producer != "payment-service" || envelope.EventID == uuid.Nil || envelope.AggregateID == uuid.Nil {
+		return false, domain.ErrInvalidInput
+	}
+	var data sharedevent.PaymentRemainingBalanceSucceededData
+	if err := json.Unmarshal(envelope.Data, &data); err != nil || data.OrderID == uuid.Nil || data.PaymentID == uuid.Nil || data.AmountVND <= 0 || data.Currency != "VND" || data.OrderID != envelope.AggregateID {
+		return false, domain.ErrInvalidInput
+	}
+	now := s.now().UTC()
+	description := domain.RemainingBalanceSucceededTrackingDescription
+	statusEvent, err := sharedevent.New(sharedevent.OrderStatusChanged, data.OrderID, "order-service", now, sharedevent.OrderStatusChangedData{
+		OrderID: data.OrderID, PreviousStatus: string(domain.StatusWaitingRemainingPayment), CurrentStatus: string(domain.StatusReadyForDomesticDelivery), Description: description,
+	})
+	if err != nil {
+		return false, err
+	}
+	payload, err := statusEvent.Marshal()
+	if err != nil {
+		return false, err
+	}
+	tracking := domain.TrackingEvent{ID: uuid.NewString(), OrderID: data.OrderID.String(), Status: domain.StatusReadyForDomesticDelivery, Description: description, Source: "payment-service", OccurredAt: now, CreatedAt: now}
+	return s.repository.ProcessRemainingPaymentSucceeded(ctx, ports.ProcessPaymentSucceeded{
+		EventID: envelope.EventID.String(), EventType: envelope.EventType, OrderID: data.OrderID.String(), ProcessedAt: now, Tracking: tracking,
+		AmountVND: data.AmountVND,
+		Outbox:    ports.OutboxEvent{ID: statusEvent.EventID.String(), AggregateID: data.OrderID.String(), EventType: statusEvent.EventType, Payload: payload, CreatedAt: now},
+	})
+}
+
 func makeOrderCreatedEvent(order domain.Order, now time.Time) (ports.OutboxEvent, error) {
 	data, err := json.Marshal(orderCreatedData{OrderID: order.ID, CustomerID: order.CustomerID, QuotationID: order.QuotationID, TotalAmountVND: order.TotalAmountVND, DepositAmountVND: order.DepositAmountVND, Status: order.Status})
 	if err != nil {

@@ -66,7 +66,7 @@ func (r *Repository) Create(ctx context.Context, payment domain.Payment) error {
 	_, err := r.pool.Exec(ctx, `INSERT INTO payments (id,order_id,type,amount_vnd,currency,status,payment_url,provider_reference,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, payment.ID, payment.OrderID, payment.Type, payment.AmountVND, payment.Currency, payment.Status, payment.PaymentURL, payment.ProviderReference, payment.CreatedAt, payment.UpdatedAt)
 	if err != nil {
 		var pgError *pgconn.PgError
-		if errors.As(err, &pgError) && pgError.Code == "23505" && pgError.ConstraintName == "payments_one_deposit_per_order_idx" {
+		if errors.As(err, &pgError) && pgError.Code == "23505" && (pgError.ConstraintName == "payments_one_deposit_per_order_idx" || pgError.ConstraintName == "payments_one_remaining_balance_per_order_idx") {
 			return domain.ErrPaymentConflict
 		}
 		return fmt.Errorf("create payment: %w", err)
@@ -78,8 +78,16 @@ func (r *Repository) FindByID(ctx context.Context, id string) (domain.Payment, e
 	return findByID(ctx, r.pool, id, false)
 }
 
-func (r *Repository) FindByOrderID(ctx context.Context, id string) (domain.Payment, error) {
-	return findByColumn(ctx, r.pool, "order_id", id)
+func (r *Repository) FindByOrderIDAndType(ctx context.Context, id string, paymentType domain.PaymentType) (domain.Payment, error) {
+	var p domain.Payment
+	err := r.pool.QueryRow(ctx, `SELECT id::text,order_id::text,type,amount_vnd,currency,status,payment_url,provider_reference,created_at,updated_at FROM payments WHERE order_id=$1 AND type=$2`, id, paymentType).Scan(&p.ID, &p.OrderID, &p.Type, &p.AmountVND, &p.Currency, &p.Status, &p.PaymentURL, &p.ProviderReference, &p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Payment{}, domain.ErrPaymentNotFound
+	}
+	if err != nil {
+		return domain.Payment{}, fmt.Errorf("find payment by order and type: %w", err)
+	}
+	return p, nil
 }
 func (r *Repository) FindByProviderReference(ctx context.Context, ref string) (domain.Payment, error) {
 	return findByColumn(ctx, r.pool, "provider_reference", ref)
@@ -155,16 +163,20 @@ func (r *Repository) SucceedCallback(ctx context.Context, id, eventID string, ou
 		return domain.Payment{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM provider_callbacks WHERE event_id=$1)`, eventID).Scan(&exists); err != nil {
-		return domain.Payment{}, false, err
-	}
-	if exists {
+	var callbackPaymentID string
+	callbackErr := tx.QueryRow(ctx, `SELECT payment_id::text FROM provider_callbacks WHERE event_id=$1`, eventID).Scan(&callbackPaymentID)
+	if callbackErr == nil {
+		if callbackPaymentID != id {
+			return domain.Payment{}, false, domain.ErrPaymentConflict
+		}
 		p, err := findByID(ctx, tx, id, false)
 		if err != nil {
 			return domain.Payment{}, false, err
 		}
 		return p, false, tx.Commit(ctx)
+	}
+	if !errors.Is(callbackErr, pgx.ErrNoRows) {
+		return domain.Payment{}, false, callbackErr
 	}
 	p, err := findByID(ctx, tx, id, true)
 	if err != nil {
