@@ -2,7 +2,7 @@
 
 ## System context
 
-The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin actors, plus external payment, exchange-rate, and domestic-delivery providers. The implemented sequence covers URL-led quotation extraction, explicit confirmation, hosted deposits, signed callbacks, Kafka Order transitions, SSE notifications, warehouse receipt, and read-only Admin rates. Product extraction remains deterministic in demo mode; exchange rates can use either fixed offline values or Vietcombank's public reference feed.
+The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin actors, plus external payment, exchange-rate, and domestic-delivery providers. The implemented sequence covers URL-led quotation extraction, explicit confirmation, 70% deposit and 30% balance payments through mock, direct SePay VietQR, or SePay hosted checkout, provider-verified callbacks, Kafka Order transitions, SSE notifications, warehouse receipt, and read-only Admin rates. Product extraction remains deterministic in demo mode; exchange rates can use either fixed offline values or Vietcombank's public reference feed.
 
 ## Container-level architecture
 
@@ -16,6 +16,9 @@ flowchart LR
     Nginx --> Admin
     Nginx --> Notification
     Vietcombank --> Admin
+    SePayBank[SePay bank webhook] --> Payment
+    Payment --> SePayPG[SePay hosted checkout]
+    SePayPG -->|IPN| Payment
     Quotation --> Admin
     Quotation --> QuotationDB[(quotation_db)]
     Order --> OrderDB[(order_db)]
@@ -35,10 +38,28 @@ Nginx exposes public REST and SSE APIs. Six Go containers, PostgreSQL, Kafka, Ka
 
 - Quotation owns allowlisted extraction, restriction checks, exchange-rate use, fee calculation, expiration, and idempotent Order confirmation.
 - Order owns Order state, items, tracking timeline, idempotent consumers, and Order outbox events.
-- Payment owns hosted deposits, HMAC-verified replay-safe callbacks, and their success outbox event.
+- Payment owns the shared 70% deposit and 30% balance lifecycle, provider selection, direct VietQR requests, hosted-checkout form generation, replay-safe webhook/IPN verification, and the resulting success outbox events.
 - Notification consumes Order status events and exposes a bounded-replay SSE stream.
 - Warehouse owns foreign-warehouse packages and their receipt outbox event.
 - Admin exposes a validated rate snapshot and has no runtime database/Kafka dependency. In `vietcombank` mode it reads selling rates from the official XML feed, rounds them to the nearest VND, and caches the snapshot for at least five minutes. A stale successful snapshot is retained if a later refresh temporarily fails.
+
+## Payment provider modes
+
+The provider adapter changes only how a pending Payment is presented and how
+success is authenticated. Persistence and downstream events stay provider
+independent.
+
+| Provider | Pending-payment presentation | Trusted completion path |
+|---|---|---|
+| `mock` | Local demo URL/action | Development-only mock-success request |
+| `sepay` | Direct `vietqr.app` image using the configured bank account | HMAC-authenticated incoming-transfer webhook at `/api/v1/payments/sepay/webhook` |
+| `sepay_pg` | Same-origin `GET /api/v1/payments/{paymentId}/checkout`, which returns an auto-submitting form for SePay | `X-Secret-Key`-authenticated IPN at `/api/v1/payments/sepay/pg/ipn` |
+
+For `sepay_pg`, `SEPAY_PUBLIC_URL` is the public HTTPS origin used to construct
+provider callback URLs. During local Sandbox development it can be a Cloudflare
+Quick Tunnel pointing to Nginx on port 80. Production uses the same internal
+payment lifecycle with Production merchant credentials and a stable HTTPS
+origin; browser return URLs remain informational, while IPN is authoritative.
 
 ## Synchronous communication
 
@@ -59,6 +80,9 @@ sequenceDiagram
     Payment->>Kafka: payment.deposit_succeeded.v1
     Kafka->>Order: order-service-payment-events
     Order->>OrderDB: WAITING_PURCHASE + timeline + processed event + outbox
+    Payment->>Kafka: payment.remaining_balance_succeeded.v1
+    Kafka->>Order: order-service-payment-events
+    Order->>OrderDB: READY_FOR_DOMESTIC_DELIVERY + timeline + processed event + outbox
     Warehouse->>WarehouseDB: package + outbox (one transaction)
     Warehouse->>Kafka: package.received.v1
     Kafka->>Order: order-service-warehouse-events

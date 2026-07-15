@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE UNIQUE INDEX IF NOT EXISTS payments_one_deposit_per_order_idx
     ON payments (order_id) WHERE type = 'DEPOSIT';
 
+CREATE UNIQUE INDEX IF NOT EXISTS payments_one_remaining_balance_per_order_idx
+    ON payments (order_id) WHERE type = 'REMAINING_BALANCE';
+
 CREATE TABLE IF NOT EXISTS outbox_events (
     id UUID PRIMARY KEY,
     aggregate_id UUID NOT NULL,
@@ -34,3 +37,20 @@ CREATE TABLE IF NOT EXISTS provider_callbacks (
     payment_id UUID NOT NULL,
     received_at TIMESTAMPTZ NOT NULL
 );
+
+-- Older payment-service versions required provider_request_id for MoMo.
+-- SePay uses provider_reference instead, so keep the legacy data but allow
+-- new payments to omit the obsolete column when an existing volume is reused.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'payments'
+          AND column_name = 'provider_request_id'
+          AND is_nullable = 'NO'
+    ) THEN
+        ALTER TABLE payments ALTER COLUMN provider_request_id DROP NOT NULL;
+    END IF;
+END $$;

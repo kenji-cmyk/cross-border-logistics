@@ -61,12 +61,20 @@ function New-Signature([string]$RawBody, [long]$Timestamp = [DateTimeOffset]::Ut
     $hmac = [Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($WebhookSecret))
     try { $hash = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes("$Timestamp.$RawBody")) } finally { $hmac.Dispose() }
     $hex = ([BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
-    "t=$Timestamp,v1=$hex"
+    "sha256=$hex"
 }
 
-function Invoke-SignedCallback([string]$EventId, [string]$ProviderReference, [string]$Status = "SUCCEEDED") {
-    $raw = @{ eventId = $EventId; providerReference = $ProviderReference; status = $Status } | ConvertTo-Json -Compress
-    Invoke-Api POST "/api/v1/payments/callback" $raw @{ "X-Webhook-Signature" = (New-Signature $raw) }
+function New-SePayHeaders([string]$RawBody, [long]$Timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) {
+    @{ "X-SePay-Timestamp" = "$Timestamp"; "X-SePay-Signature" = (New-Signature $RawBody $Timestamp) }
+}
+
+function New-SePayPayload([long]$TransactionId, [string]$ProviderReference, [long]$Amount) {
+    @{ id = $TransactionId; gateway = "DemoBank"; transactionDate = "2026-07-15 09:30:00"; accountNumber = "0000000000"; subAccount = ""; code = $ProviderReference; content = $ProviderReference; transferType = "in"; description = "demo"; transferAmount = $Amount; accumulated = $Amount; referenceCode = "E2E$TransactionId" } | ConvertTo-Json -Compress
+}
+
+function Invoke-SignedCallback([long]$TransactionId, [string]$ProviderReference, [long]$Amount) {
+    $raw = New-SePayPayload $TransactionId $ProviderReference $Amount
+    Invoke-Api POST "/api/v1/payments/sepay/webhook" $raw (New-SePayHeaders $raw)
 }
 
 function Wait-OrderStatus([string]$OrderId, [string]$Expected) {
@@ -201,32 +209,32 @@ Test-Case "Concurrent deposit creation is idempotent and card fields are rejecte
 }
 
 Test-Case "Invalid, stale, and malformed signed callbacks do not mutate Payment" {
-    $invalid = Invoke-Api POST "/api/v1/payments/callback" '{"eventId":"bad","providerReference":"bad","status":"SUCCEEDED"}' @{ "X-Webhook-Signature" = "t=0,v1=00" }
+    $invalid = Invoke-Api POST "/api/v1/payments/sepay/webhook" '{"id":1}' @{ "X-SePay-Timestamp" = "0"; "X-SePay-Signature" = "sha256=00" }
     Assert-True ($invalid.Status -eq 401) $invalid.Content
-    $raw = '{"eventId":"stale","providerReference":"bad","status":"SUCCEEDED"}'
+    $raw = '{"id":1}'
     $staleTimestamp = [DateTimeOffset]::UtcNow.AddMinutes(-10).ToUnixTimeSeconds()
-    $stale = Invoke-Api POST "/api/v1/payments/callback" $raw @{ "X-Webhook-Signature" = (New-Signature $raw $staleTimestamp) }
+    $stale = Invoke-Api POST "/api/v1/payments/sepay/webhook" $raw (New-SePayHeaders $raw $staleTimestamp)
     Assert-True ($stale.Status -eq 401) $stale.Content
     $malformed = '{'
-    $badJson = Invoke-Api POST "/api/v1/payments/callback" $malformed @{ "X-Webhook-Signature" = (New-Signature $malformed) }
+    $badJson = Invoke-Api POST "/api/v1/payments/sepay/webhook" $malformed (New-SePayHeaders $malformed)
     Assert-True ($badJson.Status -eq 400) $badJson.Content
     $current = Invoke-Api GET "/api/v1/payments/$script:paymentId"
     Assert-True ($current.Json.data.status -eq "PENDING") "invalid callback changed Payment"
 }
 
 Test-Case "Unknown provider callback has a stable 404 contract" {
-    $response = Invoke-SignedCallback "unknown-$script:runId" "unknown-provider-$script:runId"
+    $response = Invoke-SignedCallback ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) "UNKNOWN123456" 1
     Assert-True ($response.Status -eq 404) $response.Content
 }
 
 Test-Case "Concurrent signed callback replay is idempotent" {
-    $eventId = "callback-$script:runId"
-    $raw = @{ eventId = $eventId; providerReference = $script:payment.providerReference; status = "SUCCEEDED" } | ConvertTo-Json -Compress
-    $headers = @{ "X-Webhook-Signature" = (New-Signature $raw) }
-    $responses = Invoke-ConcurrentPost "/api/v1/payments/callback" $raw 6 $headers
+    $transactionId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $raw = New-SePayPayload $transactionId $script:payment.providerReference $script:payment.amountVnd
+    $headers = New-SePayHeaders $raw
+    $responses = Invoke-ConcurrentPost "/api/v1/payments/sepay/webhook" $raw 6 $headers
     $bad = @($responses | Where-Object Status -ne 200)
     Assert-True ($bad.Count -eq 0) "callback errors: $($bad | ConvertTo-Json -Compress)"
-    $script:callbackEventId = $eventId
+    $script:callbackEventId = "sepay:$transactionId"
     Wait-OrderStatus $script:orderId "WAITING_PURCHASE" | Out-Null
 }
 

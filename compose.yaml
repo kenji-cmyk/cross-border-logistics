@@ -101,6 +101,7 @@ services:
       - >-
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic order.created.v1 --partitions 3 --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.deposit_succeeded.v1 --partitions 3 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payment.remaining_balance_succeeded.v1 --partitions 3 --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic order.status_changed.v1 --partitions 3 --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic package.received.v1 --partitions 1 --replication-factor 1
     networks:
@@ -162,7 +163,17 @@ services:
       PAYMENT_SERVICE_PORT: 8080
       KAFKA_BROKERS: kafka:9092
       ORDER_SERVICE_URL: http://order-service:8080
-      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-demo-webhook-secret}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      SEPAY_BANK_CODE: ${SEPAY_BANK_CODE:-}
+      SEPAY_ACCOUNT_NUMBER: ${SEPAY_ACCOUNT_NUMBER:-}
+      SEPAY_ACCOUNT_HOLDER: ${SEPAY_ACCOUNT_HOLDER:-}
+      SEPAY_PAYMENT_CODE_PREFIX: ${SEPAY_PAYMENT_CODE_PREFIX:-CBL}
+      SEPAY_QR_BASE_URL: ${SEPAY_QR_BASE_URL:-https://vietqr.app/img}
+      SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
+      SEPAY_PG_ENV: ${SEPAY_PG_ENV:-sandbox}
+      SEPAY_PG_MERCHANT_ID: ${SEPAY_PG_MERCHANT_ID:-}
+      SEPAY_PG_SECRET_KEY: ${SEPAY_PG_SECRET_KEY:-}
+      SEPAY_PUBLIC_URL: ${SEPAY_PUBLIC_URL:-}
 
   warehouse-service:
     <<: *go-service

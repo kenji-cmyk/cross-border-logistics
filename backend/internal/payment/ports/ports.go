@@ -23,8 +23,22 @@ type GatewayTransaction struct{ Reference, HostedURL string }
 type PaymentGateway interface {
 	CreateTransaction(context.Context, string, int64, string) (GatewayTransaction, error)
 }
+
+type CheckoutField struct {
+	Name  string
+	Value string
+}
+
+type CheckoutForm struct {
+	Action string
+	Fields []CheckoutField
+}
+
+type CheckoutGateway interface {
+	BuildCheckout(context.Context, domain.Payment) (CheckoutForm, error)
+}
 type PaymentLookup interface {
-	FindByOrderID(context.Context, string) (domain.Payment, error)
+	FindByOrderIDAndType(context.Context, string, domain.PaymentType) (domain.Payment, error)
 	FindByProviderReference(context.Context, string) (domain.Payment, error)
 }
 type CallbackRepository interface {

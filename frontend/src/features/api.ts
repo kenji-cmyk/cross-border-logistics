@@ -18,6 +18,7 @@ export const frontendApi = {
   getOrder: (id: string) => requestParsed(`/api/v1/orders/${encodeURIComponent(id)}`, orderSchema),
   getTimeline: (id: string) => requestParsed(`/api/v1/orders/${encodeURIComponent(id)}/timeline`, trackingEventSchema.array()),
   createDeposit: (orderId: string) => requestParsed("/api/v1/payments/deposit", paymentSchema, json({ orderId })),
+  createRemainingBalance: (orderId: string) => requestParsed("/api/v1/payments/remaining-balance", paymentSchema, json({ orderId })),
   getPayment: (id: string) => requestParsed(`/api/v1/payments/${encodeURIComponent(id)}`, paymentSchema),
   mockPaymentSuccess: (id: string) => requestParsed(`/api/v1/payments/${encodeURIComponent(id)}/mock-success`, paymentSchema, json({})),
   receivePackage: (input: { orderId: string; sourceTrackingNumber: string; warehouseCode: string; weightKg: number; lengthCm: number; widthCm: number; heightCm: number }) => requestParsed("/api/v1/warehouse/packages/receive", warehousePackageSchema, json(input)),

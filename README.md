@@ -8,9 +8,14 @@ This is an academic, runnable source-code template for a cross-border assisted-s
 
 ```text
 Product URL -> Extracted Quotation -> Confirmed Order (WAITING_DEPOSIT)
--> Hosted Deposit -> Signed Callback -> Kafka -> SSE -> Order (WAITING_PURCHASE)
+-> Deposit (70% via mock, direct VietQR, or hosted SePay checkout)
+-> Verified webhook/IPN -> Kafka -> SSE -> Order (WAITING_PURCHASE)
 -> Foreign Warehouse Package -> Kafka
 -> Order (ARRIVED_FOREIGN_WAREHOUSE) -> Tracking Timeline
+
+When the Order later reaches `WAITING_REMAINING_PAYMENT`, the same pipeline creates
+a SePay VietQR request for the remaining 30% and moves the Order to
+`READY_FOR_DOMESTIC_DELIVERY` after verified payment.
 ```
 
 ## Architecture
@@ -23,7 +28,7 @@ The public Nginx container serves the React frontend and forwards browser API re
 |---|---|---|---|
 | Quotation | Extract allowlisted product metadata and calculate quotations / `quotation_db` | `/api/v1/quotations...` | None |
 | Order | Create Orders, own status and timeline / `order_db` | `POST`, `GET /api/v1/orders...` | Produces `order.created.v1`, `order.status_changed.v1`; consumes payment/package events |
-| Payment | Create hosted deposits and verify signed callbacks / `payment_db` | `/api/v1/payments...` | Produces `payment.deposit_succeeded.v1` |
+| Payment | Create mock, direct SePay VietQR, or SePay hosted-checkout payments and verify provider callbacks / `payment_db` | `/api/v1/payments...` | Produces deposit and remaining-balance success events |
 | Notification | Stream Order status changes / no database | `/api/v1/notifications...` | Consumes `order.status_changed.v1` |
 | Warehouse | Receive and retrieve foreign packages / `warehouse_db` | `/api/v1/warehouse/packages...` | Produces `package.received.v1` |
 | Admin | Cache Vietcombank selling rates or serve fixed offline rates / no runtime database | `GET /api/v1/admin/rates` | None |
@@ -170,6 +175,100 @@ Copyable requests for the full flow, response examples, and polling commands are
 ```bash
 BASE_URL=http://localhost make demo
 ```
+
+## Payment providers
+
+Payment provider selection is additive; the deposit/remaining-balance domain,
+database, outbox, Kafka, and SSE behavior are shared by all three modes.
+
+| `PAYMENT_PROVIDER` | Customer experience | Authoritative success signal |
+|---|---|---|
+| `mock` | Offline local demo | Development-only mock-success endpoint |
+| `sepay` | Direct bank-transfer VietQR | Incoming-transaction HMAC webhook |
+| `sepay_pg` | SePay-hosted Sandbox or Production checkout | Payment Gateway IPN |
+
+The default development profile is `PAYMENT_PROVIDER=mock`, so the repository
+can run without payment credentials.
+
+### Direct SePay VietQR
+
+Use `PAYMENT_PROVIDER=sepay` when the merchant owns the destination bank account
+and wants the application to render a VietQR directly:
+
+```dotenv
+PAYMENT_PROVIDER=sepay
+SEPAY_BANK_CODE=MBBank
+SEPAY_ACCOUNT_NUMBER=0123456789
+SEPAY_ACCOUNT_HOLDER=YOUR ACCOUNT NAME
+SEPAY_PAYMENT_CODE_PREFIX=CBL
+SEPAY_QR_BASE_URL=https://vietqr.app/img
+SEPAY_WEBHOOK_SECRET=replace-with-a-long-random-secret
+```
+
+In the SePay dashboard:
+
+1. Enable payment-code recognition with prefix `CBL`, a fixed 12-character
+   alphanumeric suffix, matching `SEPAY_PAYMENT_CODE_PREFIX`.
+2. Create an incoming-transaction webhook using HMAC-SHA256 and the same secret.
+3. Point it to `https://your-domain/api/v1/payments/sepay/webhook`, select the
+   configured bank account, and enable the payment-code filter.
+
+The webhook handler validates the raw-body signature and timestamp, destination
+account, incoming transfer type, unique SePay transaction ID, payment code, and
+exact VND amount before changing state. A valid retry is idempotent and returns
+the SePay response contract `{"success":true}`. See the official
+[SePay webhook integration](https://developer.sepay.vn/vi/sepay-webhooks/tich-hop-webhook),
+[HMAC authentication](https://developer.sepay.vn/vi/sepay-webhooks/xac-thuc), and
+[payment-code configuration](https://developer.sepay.vn/vi/sepay-webhooks/cau-hinh-ma-thanh-toan).
+
+### SePay Payment Gateway hosted checkout
+
+Use `PAYMENT_PROVIDER=sepay_pg` to send the customer to SePay's hosted checkout.
+This mode does not use `SEPAY_BANK_CODE`, `SEPAY_ACCOUNT_NUMBER`,
+`SEPAY_ACCOUNT_HOLDER`, `SEPAY_QR_BASE_URL`, or `SEPAY_WEBHOOK_SECRET`.
+
+```dotenv
+PAYMENT_PROVIDER=sepay_pg
+SEPAY_PG_ENV=sandbox
+SEPAY_PG_MERCHANT_ID=your-sandbox-merchant-id
+SEPAY_PG_SECRET_KEY=your-sandbox-secret-key
+SEPAY_PUBLIC_URL=https://your-tunnel.trycloudflare.com
+```
+
+For a pending payment, `paymentUrl` points to the same-origin route
+`GET /api/v1/payments/{paymentId}/checkout`. That route returns an
+auto-submitting HTML form which POSTs the signed checkout fields to SePay. The
+browser return is informational; only a valid IPN can mark the payment
+`SUCCEEDED`.
+
+SePay must be able to reach this IPN URL:
+
+```text
+https://your-public-origin/api/v1/payments/sepay/pg/ipn
+```
+
+For local Sandbox testing, expose Nginx with a quick Cloudflare Tunnel and keep
+that terminal running:
+
+```powershell
+cloudflared tunnel --url http://localhost:80
+```
+
+Copy the generated `https://*.trycloudflare.com` origin into
+`SEPAY_PUBLIC_URL` and the SePay Sandbox IPN configuration, then recreate
+`payment-service`:
+
+```powershell
+docker compose up -d --force-recreate payment-service
+```
+
+Quick Tunnel URLs change whenever a new tunnel is created.
+
+To switch from Sandbox to Production, set `SEPAY_PG_ENV=production`, replace the
+merchant ID and secret with Production credentials, use a stable public HTTPS
+origin for `SEPAY_PUBLIC_URL`, and configure the matching Production IPN URL.
+Never reuse or commit Sandbox/Production secrets. The payment domain and public
+application routes do not otherwise change.
 
 ## Kafka event flow
 

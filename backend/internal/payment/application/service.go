@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -12,12 +13,25 @@ import (
 )
 
 const (
-	orderStatusWaitingDeposit = "WAITING_DEPOSIT"
-	depositSucceededEventType = "payment.deposit_succeeded.v1"
+	orderStatusWaitingDeposit          = "WAITING_DEPOSIT"
+	orderStatusWaitingRemainingPayment = "WAITING_REMAINING_PAYMENT"
+	depositSucceededEventType          = "payment.deposit_succeeded.v1"
+	remainingSucceededEventType        = "payment.remaining_balance_succeeded.v1"
 )
 
 type CreateDepositInput struct {
 	OrderID string
+}
+
+type CreateRemainingBalanceInput struct {
+	OrderID string
+}
+
+type SePayWebhookInput struct {
+	ProviderReference string
+	EventID           string
+	TransferType      string
+	TransferAmountVND int64
 }
 
 type eventEnvelope struct {
@@ -29,7 +43,7 @@ type eventEnvelope struct {
 	Data        json.RawMessage `json:"data"`
 }
 
-type depositSucceededData struct {
+type paymentSucceededData struct {
 	PaymentID string          `json:"paymentId"`
 	OrderID   string          `json:"orderId"`
 	AmountVND int64           `json:"amountVnd"`
@@ -52,34 +66,47 @@ func NewService(repository ports.PaymentRepository, orders ports.OrderReader, ga
 }
 
 func (s *Service) CreateDeposit(ctx context.Context, input CreateDepositInput) (domain.Payment, error) {
-	input.OrderID = strings.TrimSpace(input.OrderID)
-	if _, err := uuid.Parse(input.OrderID); err != nil {
+	return s.createPayment(ctx, strings.TrimSpace(input.OrderID), domain.TypeDeposit, orderStatusWaitingDeposit)
+}
+
+func (s *Service) CreateRemainingBalance(ctx context.Context, input CreateRemainingBalanceInput) (domain.Payment, error) {
+	return s.createPayment(ctx, strings.TrimSpace(input.OrderID), domain.TypeRemainingBalance, orderStatusWaitingRemainingPayment)
+}
+
+func (s *Service) createPayment(ctx context.Context, orderID string, paymentType domain.PaymentType, expectedOrderStatus string) (domain.Payment, error) {
+	if _, err := uuid.Parse(orderID); err != nil {
 		return domain.Payment{}, domain.ErrInvalidInput
 	}
 	if lookup, ok := s.repository.(ports.PaymentLookup); ok {
-		if existing, err := lookup.FindByOrderID(ctx, input.OrderID); err == nil {
+		if existing, err := lookup.FindByOrderIDAndType(ctx, orderID, paymentType); err == nil {
 			return existing, nil
+		} else if !errors.Is(err, domain.ErrPaymentNotFound) {
+			return domain.Payment{}, err
 		}
 	}
-	summary, err := s.orders.GetPaymentSummary(ctx, input.OrderID)
+	summary, err := s.orders.GetPaymentSummary(ctx, orderID)
 	if err != nil {
 		return domain.Payment{}, err
 	}
-	if summary.OrderID != input.OrderID || summary.DepositAmountVND <= 0 || summary.Status != orderStatusWaitingDeposit {
+	amount := summary.DepositAmountVND
+	if paymentType == domain.TypeRemainingBalance {
+		amount = summary.RemainingAmountVND
+	}
+	if summary.OrderID != orderID || amount <= 0 || summary.Status != expectedOrderStatus {
 		return domain.Payment{}, domain.ErrInvalidState
 	}
 	now := s.now().UTC()
 	id := uuid.NewString()
 	transaction := ports.GatewayTransaction{Reference: "mock-" + id, HostedURL: "https://mock-payments.local/payments/" + id}
 	if s.gateway != nil {
-		transaction, err = s.gateway.CreateTransaction(ctx, id, summary.DepositAmountVND, "VND")
+		transaction, err = s.gateway.CreateTransaction(ctx, id, amount, "VND")
 		if err != nil {
 			return domain.Payment{}, domain.ErrDependency
 		}
 	}
 	payment := domain.Payment{
-		ID: id, OrderID: input.OrderID, Type: domain.TypeDeposit,
-		AmountVND: summary.DepositAmountVND, Currency: domain.CurrencyVND, Status: domain.StatusPending,
+		ID: id, OrderID: orderID, Type: paymentType,
+		AmountVND: amount, Currency: domain.CurrencyVND, Status: domain.StatusPending,
 		PaymentURL:        transaction.HostedURL,
 		ProviderReference: transaction.Reference, CreatedAt: now, UpdatedAt: now,
 	}
@@ -89,20 +116,25 @@ func (s *Service) CreateDeposit(ctx context.Context, input CreateDepositInput) (
 	return payment, nil
 }
 
-func (s *Service) ProcessCallback(ctx context.Context, providerReference, eventID, status string) (domain.Payment, error) {
-	providerReference, eventID, status = strings.TrimSpace(providerReference), strings.TrimSpace(eventID), strings.ToUpper(strings.TrimSpace(status))
-	if providerReference == "" || eventID == "" || status != "SUCCEEDED" {
+func (s *Service) ProcessSePayWebhook(ctx context.Context, input SePayWebhookInput) (domain.Payment, error) {
+	input.ProviderReference = strings.TrimSpace(input.ProviderReference)
+	input.EventID = strings.TrimSpace(input.EventID)
+	input.TransferType = strings.ToLower(strings.TrimSpace(input.TransferType))
+	if input.ProviderReference == "" || input.EventID == "" || input.TransferType != "in" || input.TransferAmountVND <= 0 {
 		return domain.Payment{}, domain.ErrInvalidInput
 	}
 	lookup, ok := s.repository.(ports.PaymentLookup)
 	if !ok {
 		return domain.Payment{}, domain.ErrDependency
 	}
-	payment, err := lookup.FindByProviderReference(ctx, providerReference)
+	payment, err := lookup.FindByProviderReference(ctx, input.ProviderReference)
 	if err != nil {
 		return domain.Payment{}, err
 	}
-	outbox, err := makeDepositSucceededEvent(payment, s.now().UTC())
+	if payment.AmountVND != input.TransferAmountVND || payment.Currency != domain.CurrencyVND {
+		return domain.Payment{}, domain.ErrInvalidInput
+	}
+	outbox, err := makePaymentSucceededEvent(payment, s.now().UTC())
 	if err != nil {
 		return domain.Payment{}, err
 	}
@@ -110,7 +142,7 @@ func (s *Service) ProcessCallback(ctx context.Context, providerReference, eventI
 	if !ok {
 		return domain.Payment{}, domain.ErrDependency
 	}
-	result, _, err := callbacks.SucceedCallback(ctx, payment.ID, eventID, outbox)
+	result, _, err := callbacks.SucceedCallback(ctx, payment.ID, input.EventID, outbox)
 	return result, err
 }
 
@@ -119,6 +151,25 @@ func (s *Service) Get(ctx context.Context, id string) (domain.Payment, error) {
 		return domain.Payment{}, domain.ErrInvalidInput
 	}
 	return s.repository.FindByID(ctx, id)
+}
+
+func (s *Service) BuildCheckout(ctx context.Context, id string) (ports.CheckoutForm, error) {
+	payment, err := s.Get(ctx, id)
+	if err != nil {
+		return ports.CheckoutForm{}, err
+	}
+	if payment.Status != domain.StatusPending {
+		return ports.CheckoutForm{}, domain.ErrInvalidState
+	}
+	gateway, ok := s.gateway.(ports.CheckoutGateway)
+	if !ok {
+		return ports.CheckoutForm{}, domain.ErrCheckoutUnavailable
+	}
+	form, err := gateway.BuildCheckout(ctx, payment)
+	if err != nil {
+		return ports.CheckoutForm{}, domain.ErrCheckoutUnavailable
+	}
+	return form, nil
 }
 
 func (s *Service) MarkSucceeded(ctx context.Context, id string) (domain.Payment, error) {
@@ -136,7 +187,7 @@ func (s *Service) MarkSucceeded(ctx context.Context, id string) (domain.Payment,
 		return domain.Payment{}, domain.ErrInvalidState
 	}
 	now := s.now().UTC()
-	outbox, err := makeDepositSucceededEvent(payment, now)
+	outbox, err := makePaymentSucceededEvent(payment, now)
 	if err != nil {
 		return domain.Payment{}, err
 	}
@@ -144,15 +195,21 @@ func (s *Service) MarkSucceeded(ctx context.Context, id string) (domain.Payment,
 	return result, err
 }
 
-func makeDepositSucceededEvent(payment domain.Payment, now time.Time) (ports.OutboxEvent, error) {
-	data, err := json.Marshal(depositSucceededData{PaymentID: payment.ID, OrderID: payment.OrderID, AmountVND: payment.AmountVND, Currency: payment.Currency})
+func makePaymentSucceededEvent(payment domain.Payment, now time.Time) (ports.OutboxEvent, error) {
+	eventType := depositSucceededEventType
+	if payment.Type == domain.TypeRemainingBalance {
+		eventType = remainingSucceededEventType
+	} else if payment.Type != domain.TypeDeposit {
+		return ports.OutboxEvent{}, domain.ErrInvalidState
+	}
+	data, err := json.Marshal(paymentSucceededData{PaymentID: payment.ID, OrderID: payment.OrderID, AmountVND: payment.AmountVND, Currency: payment.Currency})
 	if err != nil {
 		return ports.OutboxEvent{}, err
 	}
 	eventID := uuid.NewString()
-	payload, err := json.Marshal(eventEnvelope{EventID: eventID, EventType: depositSucceededEventType, AggregateID: payment.OrderID, Producer: "payment-service", OccurredAt: now, Data: data})
+	payload, err := json.Marshal(eventEnvelope{EventID: eventID, EventType: eventType, AggregateID: payment.OrderID, Producer: "payment-service", OccurredAt: now, Data: data})
 	if err != nil {
 		return ports.OutboxEvent{}, err
 	}
-	return ports.OutboxEvent{ID: eventID, AggregateID: payment.OrderID, EventType: depositSucceededEventType, Payload: payload, CreatedAt: now}, nil
+	return ports.OutboxEvent{ID: eventID, AggregateID: payment.OrderID, EventType: eventType, Payload: payload, CreatedAt: now}, nil
 }

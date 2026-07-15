@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { dedupeTimeline } from "../hooks/useOrderStream";
+import { dedupeTimeline, paymentNotificationForStatus } from "../hooks/useOrderStream";
+import { paymentExperienceForUrl } from "../pages/DepositPaymentPage";
 import { validateQuotationInput } from "../pages/NewQuotationPage";
 import { validatePackage } from "../pages/WarehouseReceivePage";
 import type { TrackingEvent } from "../types/api";
@@ -18,4 +19,30 @@ describe("frontend domain helpers", () => {
   it("validates warehouse measurements", () => expect(validatePackage({ orderId: "46ab7a1a-bab7-4a46-b9f9-d7572a284895", sourceTrackingNumber: "CN-1", warehouseCode: "CN-GZ-01", weightKg: "1.4", lengthCm: "30", widthCm: "20", heightCm: "15" })).toEqual({}));
   it("rejects measurements outside backend limits", () => expect(validatePackage({ orderId: "46ab7a1a-bab7-4a46-b9f9-d7572a284895", sourceTrackingNumber: "CN-1", warehouseCode: "CN-GZ-01", weightKg: "0", lengthCm: "501", widthCm: "20", heightCm: "15" })).toMatchObject({ weightKg: expect.any(String), lengthCm: expect.any(String) }));
   it("deduplicates visible timeline events by backend ID", () => { const event = { id: "event-1", orderId: "order-1", status: "WAITING_DEPOSIT", description: "raw", source: "order-service", occurredAt: new Date().toISOString(), createdAt: new Date().toISOString() } satisfies TrackingEvent; expect(dedupeTimeline([event, event])).toHaveLength(1); });
+  it("maps payment SSE statuses to deposit and balance notifications", () => {
+    expect(paymentNotificationForStatus("event-1", "WAITING_PURCHASE")?.message).toContain("70%");
+    expect(paymentNotificationForStatus("event-2", "READY_FOR_DOMESTIC_DELIVERY")?.message).toContain("30%");
+  });
+  it("recognizes relative and absolute SePay hosted checkout URLs", () => {
+    expect(paymentExperienceForUrl("/api/v1/payments/payment-1/checkout")).toEqual({
+      kind: "hosted-sepay",
+      actionLabel: "Continue to SePay",
+    });
+    expect(
+      paymentExperienceForUrl(
+        "https://demo.example/api/v1/payments/payment-2/checkout?source=web",
+      ),
+    ).toEqual({
+      kind: "hosted-sepay",
+      actionLabel: "Continue to SePay",
+    });
+  });
+  it("preserves the direct VietQR payment experience", () => {
+    expect(
+      paymentExperienceForUrl("https://vietqr.app/img?bank=MB&acc=123"),
+    ).toEqual({
+      kind: "direct",
+      actionLabel: "Open SePay QR",
+    });
+  });
 });

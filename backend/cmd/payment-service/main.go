@@ -15,6 +15,7 @@ import (
 	"github.com/example/cross-border-logistics/internal/payment/adapters/orderclient"
 	paymentpostgres "github.com/example/cross-border-logistics/internal/payment/adapters/postgres"
 	"github.com/example/cross-border-logistics/internal/payment/application"
+	"github.com/example/cross-border-logistics/internal/payment/ports"
 	"github.com/example/cross-border-logistics/pkg/config"
 	"github.com/example/cross-border-logistics/pkg/httpx"
 	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
@@ -53,12 +54,50 @@ func main() {
 		return
 	}
 	orderReader := orderclient.New(cfg.OrderServiceURL, cfg.HTTPClientTimeout)
-	webhookSecret := strings.TrimSpace(os.Getenv("PAYMENT_WEBHOOK_SECRET"))
-	if strings.EqualFold(cfg.AppEnv, "production") && webhookSecret == "" {
-		log.Fatal("PAYMENT_WEBHOOK_SECRET is required in production")
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("PAYMENT_PROVIDER")))
+	if provider == "" {
+		provider = "mock"
 	}
-	service := application.NewService(repository, orderReader, paymentadapters.MockHostedGateway{})
-	handler := paymenthttp.New(service, serviceLogger, cfg.ServiceName, webhookSecret, cfg.AppEnv)
+	webhookSecret := strings.TrimSpace(os.Getenv("SEPAY_WEBHOOK_SECRET"))
+	pgSecret := strings.TrimSpace(os.Getenv("SEPAY_PG_SECRET_KEY"))
+	sePayAccountNumber := strings.TrimSpace(os.Getenv("SEPAY_ACCOUNT_NUMBER"))
+	var gateway ports.PaymentGateway
+	switch provider {
+	case "sepay":
+		gateway, err = paymentadapters.NewSePayGateway(paymentadapters.SePayGatewayConfig{
+			BankCode:          os.Getenv("SEPAY_BANK_CODE"),
+			AccountNumber:     sePayAccountNumber,
+			AccountHolder:     os.Getenv("SEPAY_ACCOUNT_HOLDER"),
+			PaymentCodePrefix: os.Getenv("SEPAY_PAYMENT_CODE_PREFIX"),
+			QRBaseURL:         os.Getenv("SEPAY_QR_BASE_URL"),
+		})
+		if err != nil {
+			log.Fatalf("invalid SePay configuration: %v", err)
+		}
+		if webhookSecret == "" {
+			log.Fatal("SEPAY_WEBHOOK_SECRET is required when PAYMENT_PROVIDER=sepay")
+		}
+	case "sepay_pg":
+		gateway, err = paymentadapters.NewSePayPGGateway(paymentadapters.SePayPGGatewayConfig{
+			Environment:   os.Getenv("SEPAY_PG_ENV"),
+			MerchantID:    os.Getenv("SEPAY_PG_MERCHANT_ID"),
+			SecretKey:     pgSecret,
+			ReturnBaseURL: os.Getenv("SEPAY_PUBLIC_URL"),
+		})
+		if err != nil {
+			log.Fatalf("invalid SePay Payment Gateway configuration: %v", err)
+		}
+	case "mock":
+		if strings.EqualFold(cfg.AppEnv, "production") {
+			log.Fatal("PAYMENT_PROVIDER=mock is not allowed in production")
+		}
+		gateway = paymentadapters.MockHostedGateway{}
+	default:
+		log.Fatalf("unsupported PAYMENT_PROVIDER %q (expected mock, sepay, or sepay_pg)", provider)
+	}
+	serviceLogger.Info("payment provider configured", "provider", provider)
+	service := application.NewService(repository, orderReader, gateway)
+	handler := paymenthttp.New(service, serviceLogger, cfg.ServiceName, webhookSecret, cfg.AppEnv, sePayAccountNumber, provider, pgSecret)
 	worker := sharedkafka.NewOutboxWorker(repository, producer, cfg.OutboxPollInterval, serviceLogger)
 	var workers sync.WaitGroup
 	workers.Add(1)

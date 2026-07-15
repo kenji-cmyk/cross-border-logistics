@@ -40,6 +40,7 @@ type OrderRepository interface {
 	FindByID(context.Context, string) (domain.Order, error)
 	FindTimeline(context.Context, string) ([]domain.TrackingEvent, error)
 	ProcessPaymentSucceeded(context.Context, ProcessPaymentSucceeded) (bool, error)
+	ProcessRemainingPaymentSucceeded(context.Context, ProcessPaymentSucceeded) (bool, error)
 	ProcessPackageReceived(context.Context, ProcessPackageReceived) (bool, error)
 }
 

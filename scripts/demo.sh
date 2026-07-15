@@ -30,8 +30,8 @@ api_request() {
 signed_callback() {
   local body=$1 timestamp signature response status
   timestamp=$(date +%s)
-  signature=$(printf '%s' "$timestamp.$body" | openssl dgst -sha256 -hmac "${PAYMENT_WEBHOOK_SECRET:-demo-webhook-secret}" -hex | awk '{print $NF}')
-  response=$(curl --silent --show-error --max-time 10 -X POST -H 'Content-Type: application/json' -H "X-Webhook-Signature: t=$timestamp,v1=$signature" -w $'\n%{http_code}' "$BASE_URL/api/v1/payments/callback" --data "$body")
+  signature=$(printf '%s' "$timestamp.$body" | openssl dgst -sha256 -hmac "${SEPAY_WEBHOOK_SECRET:-demo-webhook-secret}" -hex | awk '{print $NF}')
+  response=$(curl --silent --show-error --max-time 10 -X POST -H 'Content-Type: application/json' -H "X-SePay-Timestamp: $timestamp" -H "X-SePay-Signature: sha256=$signature" -w $'\n%{http_code}' "$BASE_URL/api/v1/payments/sepay/webhook" --data "$body")
   status=${response##*$'\n'}; response=${response%$'\n'*}; [[ "$status" =~ ^2 ]] || { echo "$response" >&2; return 1; }; printf '%s' "$response"
 }
 
@@ -94,12 +94,15 @@ echo "Payment status: PENDING"
 
 echo "[5/10] Simulating payment success..."
 provider_reference=$(jq -r '.data.providerReference' <<<"$payment")
-callback_event="callback-$run_id"
-callback_body=$(jq -nc --arg event "$callback_event" --arg reference "$provider_reference" '{eventId:$event,providerReference:$reference,status:"SUCCEEDED"}')
-payment=$(signed_callback "$callback_body")
+payment_amount=$(jq -r '.data.amountVnd' <<<"$payment")
+sepay_transaction_id="$(date +%s)${RANDOM:-0}"
+callback_body=$(jq -nc --argjson id "$sepay_transaction_id" --arg reference "$provider_reference" --argjson amount "$payment_amount" '{id:$id,gateway:"DemoBank",transactionDate:"2026-07-15 09:30:00",accountNumber:"0000000000",subAccount:"",code:$reference,content:$reference,transferType:"in",description:"demo",transferAmount:$amount,accumulated:$amount,referenceCode:("DEMO"+($id|tostring))}')
+callback_response=$(signed_callback "$callback_body")
+assert_json "$callback_response" '.success|tostring' 'true' 'Successful SePay webhook'
+callback_response=$(signed_callback "$callback_body")
+assert_json "$callback_response" '.success|tostring' 'true' 'Idempotent SePay webhook replay'
+payment=$(api_request GET "$BASE_URL/api/v1/payments/$payment_id")
 assert_json "$payment" '.data.status' 'SUCCEEDED' 'Successful Payment status'
-payment=$(signed_callback "$callback_body")
-assert_json "$payment" '.data.status' 'SUCCEEDED' 'Idempotent callback replay'
 echo "Payment status: SUCCEEDED"
 
 echo "[6/10] Waiting for Kafka payment event..."
