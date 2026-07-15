@@ -85,7 +85,7 @@ func main() {
 		httpx.WriteJSON(w, 200, httpx.Health{Status: "UP", Service: cfg.ServiceName})
 	})
 	mux.HandleFunc("GET /api/v1/notifications/orders/{orderId}/stream", func(w http.ResponseWriter, r *http.Request) { stream(w, r, h) })
-	if err := httpx.RunContext(ctx, l, cfg.Port, mux); err != nil {
+	if err := httpx.RunStreamingContext(ctx, l, cfg.Port, mux); err != nil {
 		l.Error("service stopped", "error", err)
 	}
 }

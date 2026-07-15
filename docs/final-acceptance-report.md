@@ -52,4 +52,4 @@ Final verification on 2026-07-11 passed: formatting check, `go test ./...`, `go 
 
 ## Known demo limitations
 
-The stack is intentionally single-node and unauthenticated; product/payment providers remain demo adapters; Admin uses cached Vietcombank reference rates by default with a fixed offline mode; Kafka UI is demo-only; local Compose has no TLS; and the warehouse event uses the documented direct demo state transition.
+The stack is intentionally single-node and unauthenticated; product/payment providers remain demo adapters; Admin uses cached Vietcombank reference rates by default with a fixed offline mode; Kafka UI is demo-only; local Compose defaults to HTTP while a public domain enables Caddy-managed HTTPS; and the warehouse event uses the documented direct demo state transition.

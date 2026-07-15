@@ -8,17 +8,19 @@ The broader domain includes Customer, Purchaser, Warehouse Staff, and Admin acto
 
 ```mermaid
 flowchart LR
-    Client --> Nginx
-    Nginx --> Quotation
-    Nginx --> Order
-    Nginx --> Payment
-    Nginx --> Warehouse
-    Nginx --> Admin
-    Nginx --> Notification
+    Client -->|HTTP/HTTPS| Caddy
+    Caddy --> Frontend[Frontend Nginx]
+    Frontend --> Gateway[API Gateway Nginx]
+    Gateway --> Quotation
+    Gateway --> Order
+    Gateway --> Payment
+    Gateway --> Warehouse
+    Gateway --> Admin
+    Gateway --> Notification
     Vietcombank --> Admin
-    SePayBank[SePay bank webhook] --> Payment
+    SePayBank[SePay bank webhook] -->|HTTPS| Caddy
     Payment --> SePayPG[SePay hosted checkout]
-    SePayPG -->|IPN| Payment
+    SePayPG -->|HTTPS IPN| Caddy
     Quotation --> Admin
     Quotation --> QuotationDB[(quotation_db)]
     Order --> OrderDB[(order_db)]
@@ -32,7 +34,7 @@ flowchart LR
     KafkaUI --> Kafka
 ```
 
-Nginx exposes public REST and SSE APIs. Six Go containers, PostgreSQL, Kafka, Kafka UI, and the one-shot topic initializer share a private Compose network.
+Caddy is the only container publishing host ports 80 and 443. It terminates TLS, redirects public HTTP to HTTPS when a domain is configured, and proxies unchanged requests to frontend Nginx. Frontend Nginx serves React and forwards REST/SSE traffic to the API gateway; all other containers share the private Compose network.
 
 ## Service responsibilities
 
@@ -57,9 +59,10 @@ independent.
 
 For `sepay_pg`, `SEPAY_PUBLIC_URL` is the public HTTPS origin used to construct
 provider callback URLs. During local Sandbox development it can be a Cloudflare
-Quick Tunnel pointing to Nginx on port 80. Production uses the same internal
-payment lifecycle with Production merchant credentials and a stable HTTPS
-origin; browser return URLs remain informational, while IPN is authoritative.
+Quick Tunnel pointing to Caddy on port 80. A server sets `PUBLIC_SITE_ADDRESS`
+to its DNS name so Caddy obtains and renews the public certificate. Production
+uses the same internal payment lifecycle with Production merchant credentials;
+browser return URLs remain informational, while IPN is authoritative.
 
 ## Synchronous communication
 
@@ -89,7 +92,7 @@ sequenceDiagram
     Order->>OrderDB: ARRIVED_FOREIGN_WAREHOUSE + timeline + processed event + outbox
 ```
 
-Order also publishes `order.created.v1` and `order.status_changed.v1` from its outbox. Notification consumes status changes; Nginx only routes SSE and never consumes Kafka.
+Order also publishes `order.created.v1` and `order.status_changed.v1` from its outbox. Notification consumes status changes; Caddy and Nginx only route SSE and never consume Kafka.
 
 ## Data ownership
 
@@ -106,8 +109,8 @@ The single PostgreSQL container hosts `quotation_db`, `order_db`, `payment_db`, 
 
 ## Demo deployment
 
-One EC2 instance runs Docker Compose: Nginx, six Go services, one PostgreSQL container, one Kafka broker, and optional demo-only Kafka UI. Only Nginx port 80 should be public. See [EC2 deployment](ec2-deployment.md).
+One EC2 instance runs Docker Compose: Caddy, two private Nginx layers, six Go services, one PostgreSQL container, one Kafka broker, and optional demo-only Kafka UI. Only Caddy TCP ports 80 and 443 are public. See [EC2 deployment](ec2-deployment.md).
 
 ## Target production architecture (future state only)
 
-A production evolution would use a load balancer and TLS, multiple service instances, managed multi-AZ PostgreSQL, a replicated Kafka cluster, secrets management, centralized logs/metrics/traces, object storage, and autoscaling. This repository does not implement or claim those properties.
+A production evolution would replace the single-node Caddy ingress with a managed load balancer, multiple service instances, managed multi-AZ PostgreSQL, a replicated Kafka cluster, secrets management, centralized logs/metrics/traces, object storage, and autoscaling. This repository does not implement or claim those properties.
