@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/admin/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/domain"
 )
 
 type LookupFunc func(string) (string, bool)

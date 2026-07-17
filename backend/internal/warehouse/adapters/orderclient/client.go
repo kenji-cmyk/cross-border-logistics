@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/warehouse/domain"
-	"github.com/example/cross-border-logistics/internal/warehouse/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/ports"
 	"github.com/google/uuid"
 )
 

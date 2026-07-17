@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/example/cross-border-logistics/pkg/config"
-	sharedevent "github.com/example/cross-border-logistics/pkg/event"
-	"github.com/example/cross-border-logistics/pkg/httpx"
-	"github.com/example/cross-border-logistics/pkg/logger"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/config"
+	sharedevent "github.com/kenji-cmyk/cross-border-logistics/pkg/event"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 )

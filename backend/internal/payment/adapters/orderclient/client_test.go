@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/payment/adapters/orderclient"
-	"github.com/example/cross-border-logistics/internal/payment/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/adapters/orderclient"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/domain"
 )
 
 func TestGetPaymentSummary(t *testing.T) {

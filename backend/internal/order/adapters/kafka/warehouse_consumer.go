@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/order/domain"
-	sharedevent "github.com/example/cross-border-logistics/pkg/event"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/domain"
+	sharedevent "github.com/kenji-cmyk/cross-border-logistics/pkg/event"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 

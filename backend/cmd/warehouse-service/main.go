@@ -8,15 +8,15 @@ import (
 	"syscall"
 	"time"
 
-	warehousehttp "github.com/example/cross-border-logistics/internal/warehouse/adapters/http"
-	"github.com/example/cross-border-logistics/internal/warehouse/adapters/orderclient"
-	warehousepostgres "github.com/example/cross-border-logistics/internal/warehouse/adapters/postgres"
-	"github.com/example/cross-border-logistics/internal/warehouse/application"
-	"github.com/example/cross-border-logistics/pkg/config"
-	"github.com/example/cross-border-logistics/pkg/httpx"
-	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
-	"github.com/example/cross-border-logistics/pkg/logger"
-	sharedpostgres "github.com/example/cross-border-logistics/pkg/postgres"
+	warehousehttp "github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/adapters/orderclient"
+	warehousepostgres "github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/adapters/postgres"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/application"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/config"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
+	sharedkafka "github.com/kenji-cmyk/cross-border-logistics/pkg/kafka"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/logger"
+	sharedpostgres "github.com/kenji-cmyk/cross-border-logistics/pkg/postgres"
 )
 
 func main() {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
-	quotationmigration "github.com/example/cross-border-logistics/migrations/quotation"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
+	quotationmigration "github.com/kenji-cmyk/cross-border-logistics/migrations/quotation"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

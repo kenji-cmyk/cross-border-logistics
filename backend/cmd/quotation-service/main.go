@@ -6,16 +6,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/quotation/adapters"
-	"github.com/example/cross-border-logistics/internal/quotation/adapters/extraction"
-	quotationhttp "github.com/example/cross-border-logistics/internal/quotation/adapters/http"
-	quotationpostgres "github.com/example/cross-border-logistics/internal/quotation/adapters/postgres"
-	"github.com/example/cross-border-logistics/internal/quotation/application"
-	"github.com/example/cross-border-logistics/internal/quotation/ports"
-	"github.com/example/cross-border-logistics/pkg/config"
-	"github.com/example/cross-border-logistics/pkg/httpx"
-	"github.com/example/cross-border-logistics/pkg/logger"
-	sharedpostgres "github.com/example/cross-border-logistics/pkg/postgres"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters/extraction"
+	quotationhttp "github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters/http"
+	quotationpostgres "github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters/postgres"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/config"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/logger"
+	sharedpostgres "github.com/kenji-cmyk/cross-border-logistics/pkg/postgres"
 )
 
 func main() {

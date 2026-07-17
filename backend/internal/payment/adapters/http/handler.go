@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/payment/application"
-	"github.com/example/cross-border-logistics/internal/payment/domain"
-	"github.com/example/cross-border-logistics/internal/payment/ports"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 type Service interface {

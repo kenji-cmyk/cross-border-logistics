@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/cross-border-logistics/internal/quotation/adapters"
-	quotationhttp "github.com/example/cross-border-logistics/internal/quotation/adapters/http"
-	"github.com/example/cross-border-logistics/internal/quotation/application"
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters"
+	quotationhttp "github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 type repository struct{ values map[string]domain.Quotation }

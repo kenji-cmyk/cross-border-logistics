@@ -10,17 +10,17 @@ import (
 	"syscall"
 	"time"
 
-	paymentadapters "github.com/example/cross-border-logistics/internal/payment/adapters"
-	paymenthttp "github.com/example/cross-border-logistics/internal/payment/adapters/http"
-	"github.com/example/cross-border-logistics/internal/payment/adapters/orderclient"
-	paymentpostgres "github.com/example/cross-border-logistics/internal/payment/adapters/postgres"
-	"github.com/example/cross-border-logistics/internal/payment/application"
-	"github.com/example/cross-border-logistics/internal/payment/ports"
-	"github.com/example/cross-border-logistics/pkg/config"
-	"github.com/example/cross-border-logistics/pkg/httpx"
-	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
-	"github.com/example/cross-border-logistics/pkg/logger"
-	sharedpostgres "github.com/example/cross-border-logistics/pkg/postgres"
+	paymentadapters "github.com/kenji-cmyk/cross-border-logistics/internal/payment/adapters"
+	paymenthttp "github.com/kenji-cmyk/cross-border-logistics/internal/payment/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/adapters/orderclient"
+	paymentpostgres "github.com/kenji-cmyk/cross-border-logistics/internal/payment/adapters/postgres"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/config"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
+	sharedkafka "github.com/kenji-cmyk/cross-border-logistics/pkg/kafka"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/logger"
+	sharedpostgres "github.com/kenji-cmyk/cross-border-logistics/pkg/postgres"
 )
 
 func main() {

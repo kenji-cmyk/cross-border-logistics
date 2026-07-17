@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/admin/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/ports"
 )
 
 type SystemRates struct {

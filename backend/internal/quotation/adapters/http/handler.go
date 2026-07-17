@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/example/cross-border-logistics/internal/quotation/application"
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 type Service interface {

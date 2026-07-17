@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/order/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/domain"
 )
 
 type QuotationSnapshot struct {

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	orderhttp "github.com/example/cross-border-logistics/internal/order/adapters/http"
-	"github.com/example/cross-border-logistics/internal/order/application"
-	"github.com/example/cross-border-logistics/internal/order/domain"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	orderhttp "github.com/kenji-cmyk/cross-border-logistics/internal/order/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 const orderID = "46ab7a1a-bab7-4a46-b9f9-d7572a284895"

@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	paymenthttp "github.com/example/cross-border-logistics/internal/payment/adapters/http"
-	"github.com/example/cross-border-logistics/internal/payment/application"
-	"github.com/example/cross-border-logistics/internal/payment/domain"
-	"github.com/example/cross-border-logistics/internal/payment/ports"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	paymenthttp "github.com/kenji-cmyk/cross-border-logistics/internal/payment/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/payment/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 const paymentID = "9f42fc31-e997-4b6f-a742-981ca145bacc"

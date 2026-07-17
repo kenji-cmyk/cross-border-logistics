@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
 )
 
 type QuotationRepository interface {

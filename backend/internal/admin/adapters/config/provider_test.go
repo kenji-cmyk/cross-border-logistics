@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	adminconfig "github.com/example/cross-border-logistics/internal/admin/adapters/config"
+	adminconfig "github.com/kenji-cmyk/cross-border-logistics/internal/admin/adapters/config"
 )
 
 func lookup(values map[string]string) adminconfig.LookupFunc {

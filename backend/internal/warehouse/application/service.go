@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/warehouse/domain"
-	"github.com/example/cross-border-logistics/internal/warehouse/ports"
-	sharedevent "github.com/example/cross-border-logistics/pkg/event"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/ports"
+	sharedevent "github.com/kenji-cmyk/cross-border-logistics/pkg/event"
 	"github.com/google/uuid"
 )
 

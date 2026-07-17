@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/order/application"
-	"github.com/example/cross-border-logistics/internal/order/domain"
-	"github.com/example/cross-border-logistics/internal/order/ports"
-	sharedevent "github.com/example/cross-border-logistics/pkg/event"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/ports"
+	sharedevent "github.com/kenji-cmyk/cross-border-logistics/pkg/event"
 	"github.com/google/uuid"
 )
 

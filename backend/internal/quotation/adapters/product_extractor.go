@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
-	"github.com/example/cross-border-logistics/internal/quotation/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/ports"
 )
 
 // DemoProductExtractor is deterministic and performs no outbound fetch. The

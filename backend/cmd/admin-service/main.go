@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	adminconfig "github.com/example/cross-border-logistics/internal/admin/adapters/config"
-	adminhttp "github.com/example/cross-border-logistics/internal/admin/adapters/http"
-	"github.com/example/cross-border-logistics/internal/admin/adapters/vietcombank"
-	"github.com/example/cross-border-logistics/internal/admin/application"
-	"github.com/example/cross-border-logistics/internal/admin/ports"
-	"github.com/example/cross-border-logistics/pkg/config"
-	"github.com/example/cross-border-logistics/pkg/httpx"
-	"github.com/example/cross-border-logistics/pkg/logger"
+	adminconfig "github.com/kenji-cmyk/cross-border-logistics/internal/admin/adapters/config"
+	adminhttp "github.com/kenji-cmyk/cross-border-logistics/internal/admin/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/adapters/vietcombank"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/config"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/logger"
 )
 
 func main() {

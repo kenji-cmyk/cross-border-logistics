@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/example/cross-border-logistics/internal/order/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/domain"
 )
 
 func TestCanTransition(t *testing.T) {

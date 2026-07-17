@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
-	"github.com/example/cross-border-logistics/internal/quotation/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/ports"
 )
 
 type countingExtractor struct {

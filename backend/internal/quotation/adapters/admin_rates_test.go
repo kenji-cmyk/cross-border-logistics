@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/quotation/adapters"
-	"github.com/example/cross-border-logistics/internal/quotation/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/adapters"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/quotation/domain"
 )
 
 func TestAdminHTTPExchangeRatesReadsAdminSnapshot(t *testing.T) {

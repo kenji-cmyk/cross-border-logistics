@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	adminhttp "github.com/example/cross-border-logistics/internal/admin/adapters/http"
-	"github.com/example/cross-border-logistics/internal/admin/application"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	adminhttp "github.com/kenji-cmyk/cross-border-logistics/internal/admin/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/application"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 type fakeUseCase struct {

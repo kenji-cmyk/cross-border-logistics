@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/cross-border-logistics/internal/order/domain"
-	"github.com/example/cross-border-logistics/internal/order/ports"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/order/ports"
 )
 
 type Client struct {

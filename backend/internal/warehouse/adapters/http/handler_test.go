@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	warehousehttp "github.com/example/cross-border-logistics/internal/warehouse/adapters/http"
-	"github.com/example/cross-border-logistics/internal/warehouse/application"
-	"github.com/example/cross-border-logistics/internal/warehouse/domain"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	warehousehttp "github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/adapters/http"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/application"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/warehouse/domain"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 	"github.com/google/uuid"
 )
 

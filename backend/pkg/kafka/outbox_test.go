@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	sharedkafka "github.com/example/cross-border-logistics/pkg/kafka"
+	sharedkafka "github.com/kenji-cmyk/cross-border-logistics/pkg/kafka"
 )
 
 type fakeStore struct {

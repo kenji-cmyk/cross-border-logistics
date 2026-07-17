@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/example/cross-border-logistics/internal/admin/application"
-	"github.com/example/cross-border-logistics/pkg/httpx"
+	"github.com/kenji-cmyk/cross-border-logistics/internal/admin/application"
+	"github.com/kenji-cmyk/cross-border-logistics/pkg/httpx"
 )
 
 type RatesUseCase interface {

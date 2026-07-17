@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	sharedevent "github.com/example/cross-border-logistics/pkg/event"
+	sharedevent "github.com/kenji-cmyk/cross-border-logistics/pkg/event"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 

@@ -1,4 +1,4 @@
-module github.com/example/cross-border-logistics
+module github.com/kenji-cmyk/cross-border-logistics
 
 go 1.25
 
