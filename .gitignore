@@ -11,9 +11,6 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
-backend/tmp/
-docs/CODEX_IMPLEMENTATION_PLAN.md
-docs/FRONTEND_IMPLEMENTATION_PLAN.md
 frontend/node_modules/
 frontend/dist/
 frontend/.env
