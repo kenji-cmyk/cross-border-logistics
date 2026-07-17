@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type CreateInput struct {
+type createInput struct {
 	CustomerID, ProductURL, ProductName, SourcePrice, Currency string
 	Quantity                                                   int
 }
@@ -83,15 +82,11 @@ func (s *Service) Extract(ctx context.Context, input ExtractInput) (Result, erro
 	if err != nil {
 		return Result{}, err
 	}
-	result, err := s.create(ctx, CreateInput{CustomerID: input.CustomerID, ProductURL: product.URL, ProductName: product.Name, SourcePrice: product.SourcePrice, Currency: product.Currency, Quantity: input.Quantity}, product.ImageURL)
+	result, err := s.create(ctx, createInput{CustomerID: input.CustomerID, ProductURL: product.URL, ProductName: product.Name, SourcePrice: product.SourcePrice, Currency: product.Currency, Quantity: input.Quantity}, product.ImageURL)
 	return result, err
 }
 
-func (s *Service) Create(ctx context.Context, input CreateInput) (Result, error) {
-	return s.create(ctx, input, "")
-}
-
-func (s *Service) create(ctx context.Context, input CreateInput, imageURL string) (Result, error) {
+func (s *Service) create(ctx context.Context, input createInput, imageURL string) (Result, error) {
 	input.CustomerID, input.ProductURL, input.ProductName = strings.TrimSpace(input.CustomerID), strings.TrimSpace(input.ProductURL), strings.TrimSpace(input.ProductName)
 	input.Currency = strings.ToUpper(strings.TrimSpace(input.Currency))
 	if input.CustomerID == "" || input.ProductURL == "" || input.ProductName == "" || input.Currency == "" || input.Quantity <= 0 {
@@ -167,5 +162,3 @@ func (s *Service) Confirm(ctx context.Context, quotationID, orderID string) (Sna
 func toResult(q domain.Quotation) Result {
 	return Result{ID: q.ID, CustomerID: q.CustomerID, ProductURL: q.ProductURL, ProductName: q.ProductName, ImageURL: q.ImageURL, SourcePrice: Decimal(domain.FormatSourcePrice(q.SourcePriceMicros)), Currency: q.Currency, Quantity: q.Quantity, ExchangeRate: q.ExchangeRate, ProductAmountVND: q.ProductAmountVND, ServiceFeeVND: q.ServiceFeeVND, EstimatedShippingFeeVND: q.EstimatedShippingFeeVND, TotalAmountVND: q.TotalAmountVND, Status: q.Status, CreatedAt: q.CreatedAt, UpdatedAt: q.UpdatedAt}
 }
-
-func IsNotFound(err error) bool { return errors.Is(err, domain.ErrQuotationNotFound) }

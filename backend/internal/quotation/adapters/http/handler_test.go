@@ -36,7 +36,7 @@ func setup() (http.Handler, *repository) {
 	return httpx.RequestIDMiddleware(quotationhttp.New(service, logger, "quotation-service")), repo
 }
 
-func TestCreateAndGetQuotation(t *testing.T) {
+func TestExtractAndGetQuotation(t *testing.T) {
 	handler, _ := setup()
 	body := `{"customerId":"customer-001","productUrl":"https://shop.example/p/1?name=Keyboard&price=50&currency=USD","quantity":1}`
 	post := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestCreateAndGetQuotation(t *testing.T) {
 	}
 }
 
-func TestCreateQuotationErrors(t *testing.T) {
+func TestExtractQuotationErrors(t *testing.T) {
 	tests := []struct{ name, body, code string }{{"invalid JSON", `{`, "VALIDATION_ERROR"}, {"restricted", `{"customerId":"c","productUrl":"https://shop.example/gun?name=weapon&price=50&currency=USD","quantity":1}`, "RESTRICTED_ITEM"}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -78,6 +78,15 @@ func TestCreateQuotationErrors(t *testing.T) {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestLegacyCreateQuotationRouteIsUnavailable(t *testing.T) {
+	handler, _ := setup()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/quotations", strings.NewReader(`{}`)))
+	if response.Code != http.StatusNotFound && response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

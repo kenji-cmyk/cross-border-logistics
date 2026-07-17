@@ -1,4 +1,4 @@
-SERVICES := quotation-service order-service payment-service warehouse-service admin-service
+SERVICES := quotation-service order-service payment-service warehouse-service admin-service notification-service
 
 .PHONY: run build test fmt vet compose-up compose-down compose-logs demo reset-demo
 

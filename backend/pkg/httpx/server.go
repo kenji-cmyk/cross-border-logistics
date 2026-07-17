@@ -18,14 +18,6 @@ type Health struct {
 	Service string `json:"service"`
 }
 
-func NewHealthHandler(serviceName string) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		WriteJSON(w, http.StatusOK, Health{Status: "UP", Service: serviceName})
-	})
-	return mux
-}
-
 func Run(logger *slog.Logger, port string, handler http.Handler) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

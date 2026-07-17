@@ -1,10 +1,17 @@
 .env
 bin/
 coverage.out
+coverage/
 *.log
+*.tmp
+*.bak
+*.test
+*.prof
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
+backend/tmp/
 docs/CODEX_IMPLEMENTATION_PLAN.md
 docs/FRONTEND_IMPLEMENTATION_PLAN.md
 frontend/node_modules/

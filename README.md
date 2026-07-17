@@ -101,12 +101,9 @@ cross-border-logistics/
 |   |-- api/                              ApiDog/Postman manual-test collection
 |   |-- api-examples.md
 |   |-- architecture.md
-|   |-- CODEX_IMPLEMENTATION_PLAN.md
 |   |-- ec2-deployment.md
 |   |-- final-acceptance-report.md
-|   |-- FRONTEND_IMPLEMENTATION_PLAN.md
 |   |-- kafka-events.md
-|   |-- SEQUENCE_ALIGNMENT_REFACTOR_PLAN.md
 |   `-- troubleshooting.md
 |-- scripts/                              Demo, E2E, readiness, and reset scripts
 |-- .env.example                          Environment variable template

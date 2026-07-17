@@ -14,7 +14,6 @@ import (
 )
 
 type Service interface {
-	Create(context.Context, application.CreateInput) (application.Result, error)
 	Extract(context.Context, application.ExtractInput) (application.Result, error)
 	Get(context.Context, string) (application.Result, error)
 	GetSnapshot(context.Context, string) (application.Snapshot, error)
@@ -77,36 +76,6 @@ func (h *Handler) extract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteSuccess(w, r, http.StatusOK, result)
-}
-
-type createRequest struct {
-	CustomerID  string      `json:"customerId"`
-	ProductURL  string      `json:"productUrl"`
-	ProductName string      `json:"productName"`
-	SourcePrice json.Number `json:"sourcePrice"`
-	Currency    string      `json:"currency"`
-	Quantity    int         `json:"quantity"`
-}
-
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	decoder.UseNumber()
-	decoder.DisallowUnknownFields()
-	var request createRequest
-	if err := decoder.Decode(&request); err != nil {
-		httpx.WriteError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "request body must be valid JSON", nil)
-		return
-	}
-	if err := ensureEOF(decoder); err != nil {
-		httpx.WriteError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "request body must contain one JSON object", nil)
-		return
-	}
-	result, err := h.service.Create(r.Context(), application.CreateInput{CustomerID: request.CustomerID, ProductURL: request.ProductURL, ProductName: request.ProductName, SourcePrice: request.SourcePrice.String(), Currency: request.Currency, Quantity: request.Quantity})
-	if err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	httpx.WriteSuccess(w, r, http.StatusCreated, result)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
